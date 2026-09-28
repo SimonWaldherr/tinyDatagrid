@@ -1,0 +1,33 @@
+{
+  "name": "tiny-datagrid",
+  "description": "A dependency-free browser data grid with spreadsheet formulas, pivots, and a SQL client adapter",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "main": "./src/tinygrid.js",
+  "module": "./src/tinygrid.js",
+  "types": "./src/tinygrid.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/tinygrid.d.ts",
+      "import": "./src/tinygrid.js"
+    },
+    "./sql-client": {
+      "types": "./src/sql-client.d.ts",
+      "import": "./src/sql-client.js"
+    },
+    "./style.css": {
+      "types": "./src/style.d.ts",
+      "default": "./src/tinygrid.css"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": ["**/*.css"],
+  "scripts": {
+    "test": "node test.mjs"
+  }
+}
