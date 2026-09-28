@@ -35,7 +35,7 @@ export type CellRange = { r1: number; c1: number; r2: number; c2: number };
 /** Synchronous host-provided callback. Ranges arrive as two-dimensional arrays. */
 export type SpreadsheetFunction = (...args: any[]) => unknown;
 export type SpreadsheetFunctions = Record<string, SpreadsheetFunction>;
-export type TinyDatagridOptions = Record<string, unknown> & { functions?: SpreadsheetFunctions; historyLimit?: number; plugins?: GridPlugin[] };
+export type TinyDatagridOptions = Record<string, unknown> & { dataLocale?: string; dateParsing?: DateParsing; columnTypes?: Record<number,string>; functions?: SpreadsheetFunctions; historyLimit?: number; plugins?: GridPlugin[]; externalVariables?: Record<string, unknown> };
 export type DateParsing = 'iso' | 'locale' | false;
 export type DelimitedImportOptions = { startRow?: number; startCol?: number; replace?: boolean; delimiter?: string; inferTypes?: boolean; locale?: string; dateParsing?: DateParsing; headerRow?: number };
 
@@ -66,8 +66,15 @@ export class TinyDatagrid {
   endHistory(): this;
   setSheetName(name: string): this;
   clearSelection(): boolean;
+  moveRange(source: CellRange, destRow: number, destCol: number): boolean;
+  getOriginalValue(row: number, col: number): unknown;
+  getPrecedents(row?: number, col?: number): Array<{text: string; sheet?: string; sheetId: string|null; a: {row:number;col:number;ac:string;ar:string}; b: {row:number;col:number;ac:string;ar:string}; range: boolean}>;
+  getDependents(row?: number, col?: number): Array<{sheetId:string|null;sheet:string;row:number;col:number;address:string;formula:string}>;
   /** Clear cached results, including random values, and refresh formulas and filters. */
-  recalculate(): this;
+  recalculate(options?: { full?: boolean }): this;
+  setExternalVariable(name: string, value: unknown, options?: { recalculate?: boolean }): this;
+  setExternalVariables(values: Record<string, unknown>, options?: { recalculate?: boolean }): this;
+  removeExternalVariable(name: string, options?: { recalculate?: boolean }): boolean;
   registerFunction(name: string, fn: SpreadsheetFunction): this;
   registerFunctions(functions: SpreadsheetFunctions): this;
   unregisterFunction(name: string): boolean;

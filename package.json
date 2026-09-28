@@ -31,6 +31,14 @@
     "./indexeddb": {
       "types": "./src/indexeddb.d.ts",
       "import": "./src/indexeddb.js"
+    },
+    "./pivots": {
+      "types": "./src/pivots.d.ts",
+      "import": "./src/pivots.js"
+    },
+    "./function-help": {
+      "types": "./src/function-help.d.ts",
+      "import": "./src/function-help.js"
     }
   },
   "files": [

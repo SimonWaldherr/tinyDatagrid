@@ -25,12 +25,13 @@ export class CellMap extends Map {
   constructor(grid,entries){super();this.grid=grid;for(const [key,value] of entries||[])super.set(key,value)}
   set(key,value){
     const old=this.get(key);
+    if(old&&!Object.is(old.raw,value?.raw)&&Object.hasOwn(old,'originalInput')&&Object.is(old.originalInput,value?.originalInput))value={...value,originalInput:value.raw};
     if(!Object.is(old?.raw,value?.raw)||old?.valueType!==value?.valueType){
       this.grid._validateWrite?.(key,value?.raw);
-      this.grid.engine?.dependencies.invalidate(key);
+      this.grid.engine?.dependencies.invalidate(this.grid._calculationKey(key));
     }
     return super.set(key,value);
   }
-  delete(key){if(this.has(key)){this.grid._validateWrite?.(key,'');this.grid.engine?.dependencies.invalidate(key)}return super.delete(key)}
+  delete(key){if(this.has(key)){this.grid._validateWrite?.(key,'');this.grid.engine?.dependencies.invalidate(this.grid._calculationKey(key))}return super.delete(key)}
   clear(){for(const key of this.keys())this.grid._validateWrite?.(key,'');this.grid.engine?.clearCache();super.clear()}
 }

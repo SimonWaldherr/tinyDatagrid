@@ -22,9 +22,9 @@ Run `python3 -m http.server 8080` and open the [demo](http://localhost:8080/demo
 - Incremental formulas: math, lookups, text/regex, geo, geometry, hashes, and randomness. Register your own JavaScript functions.
 - Data import/export, pivots, SQL integration, and sharing through self-contained URL hashes.
 - Keyboard navigation, accessibility semantics, DE/EN labels, dark mode, and virtualization.
-- **Opt-in plugins:** frozen panes, conditional formatting, validation, worksheets, and IndexedDB storage.
+- **Opt-in plugins:** frozen panes, conditional formatting, validation, worksheets, in-sheet pivots, and IndexedDB storage.
 
-Array formulas do not spill; cross-sheet references are not supported. Binary Excel/ODS files require an adapter. Share links include hidden cells, but exclude custom function code and history.
+Array formulas do not spill. Cross-sheet references require the worksheets plugin. Binary Excel/ODS files require an adapter. Share links include hidden cells, but exclude custom function code and history.
 
 ## Documentation
 

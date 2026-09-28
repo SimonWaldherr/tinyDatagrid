@@ -1,8 +1,4 @@
-const BOOLEAN_VALUES = new Map([
-  ['true', true], ['false', false], ['yes', true], ['no', false], ['ja', true], ['nein', false],
-  ['oui', true], ['non', false], ['sí', true], ['si', true], ['on', true], ['off', false]
-]);
-
+import { parseNumericValue, formulaNumber, parseDataJSON } from './numeric-values.js';
 const CURRENCY_CODES = new Map([
   ['€', 'EUR'], ['eur', 'EUR'], ['$','USD'], ['usd', 'USD'], ['£', 'GBP'], ['gbp', 'GBP'],
   ['¥', 'JPY'], ['jpy', 'JPY'], ['₹', 'INR'], ['inr', 'INR'], ['₽', 'RUB'], ['rub', 'RUB'],
@@ -36,37 +32,20 @@ function parseNumberText(input, locale) {
   }
   if (!text || !/[0-9]/.test(text)) return null;
   const separators = numberSeparators(locale);
-  const dots = [...text.matchAll(/\./g)].map(match => match.index), commas = [...text.matchAll(/,/g)].map(match => match.index);
-  let decimal = separators.decimal, group = separators.group;
-  if (dots.length && commas.length) {
-    decimal = dots.at(-1) > commas.at(-1) ? '.' : ',';
-    group = decimal === '.' ? ',' : '.';
-  } else {
-    const symbol = dots.length ? '.' : commas.length ? ',' : null;
-    if (symbol && symbol !== separators.decimal && symbol !== separators.group) return null;
-    if (symbol && symbol === separators.group && symbol !== separators.decimal) {
-      const groups = text.split(symbol);
-      if (groups.length > 1 && groups.slice(1).every(part => part.length === 3)) group = symbol;
-      else return null;
-    }
-  }
-  let normalized = text.replace(/[\s\u00a0\u202f'_]/g, '');
+  const { decimal, group } = separators;
+  const grouping = group.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const whole = text.split(decimal)[0];
+  if (group && whole.includes(group) && !new RegExp(`^\\d{1,3}(?:${grouping}\\d{3})+$`).test(whole)) return null;
+  let normalized = text;
   if (group) normalized = normalized.split(group).join('');
   if (decimal && decimal !== '.') normalized = normalized.replace(decimal, '.');
   if (!/^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) return null;
   // Keep zero-padded whole numbers as text; they are usually identifiers or codes.
-  if (!percent && !currency && /^0\d+$/.test(normalized)) return null;
-  const integerToken = /^\d+$/.test(normalized);
-  let value;
-  if (integerToken && !percent && !currency) {
-    try {
-      const exact = BigInt(normalized);
-      value = exact <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(exact) : exact;
-    } catch { return null; }
-  } else {
-    value = Number(normalized);
-    if (!Number.isFinite(value)) return null;
-  }
+  if (!percent && !currency && /^0\d/.test(normalized)) return null;
+  const parsed = parseNumericValue(normalized);
+  if (!parsed.numeric || parsed.lossy) return null;
+  let value = parsed.value;
+  if ((percent || currency) && typeof value === 'bigint') return null;
   if (negative) value = typeof value === 'bigint' ? -value : -value;
   if (percent) value /= 100;
   return {
@@ -124,7 +103,7 @@ function parseStructuredText(value) {
   const text = value.trim();
   if (!/^[\[{]/.test(text)) return null;
   try {
-    const parsed = JSON.parse(text);
+    const parsed = parseDataJSON(text);
     if (parsed && typeof parsed === 'object') return { type: 'json', value: parsed };
   } catch {}
   return null;
@@ -143,7 +122,7 @@ export function inferDataValue(input, { locale, dateParsing = 'iso' } = {}) {
   if (typeof input === 'object') return { type: 'json', value: input };
   const text = String(input), trimmed = text.trim();
   if (!trimmed) return { type: 'empty', value: input };
-  const boolean = BOOLEAN_VALUES.get(trimmed.toLocaleLowerCase());
+  const boolean = ['true','false'].includes(trimmed.toLowerCase()) ? trimmed.toLowerCase()==='true' : undefined;
   if (boolean !== undefined) return { type: 'boolean', value: boolean };
   const date = parseDateText(trimmed, locale, dateParsing);
   if (date) return date;
@@ -182,12 +161,13 @@ export function coerceDataValue(input, { type = 'unknown', locale } = {}) {
     return parsed?.type === 'integer' && (typeof parsed.value === 'bigint' || Number.isInteger(parsed.value)) ? parsed.value : input;
   }
   if (/^(decimal|numeric|money|smallmoney|dec)$/.test(base) || /^(numeric|decimal)\b/.test(normalized)) {
-    const parsed = parseNumberText(input, locale);
-    return parsed && ['integer', 'number'].includes(parsed.type) ? String(parsed.value) : input;
+    // Exact decimal columns retain their source text, never a rounded Number.
+    return input;
   }
   if (/^(float|float4|float8|real|double|double precision|numeric_float|number)$/.test(base)) {
     const parsed = parseNumberText(input, locale);
-    return parsed && ['integer', 'number'].includes(parsed.type) ? Number(parsed.value) : input;
+    if (!parsed || !['integer', 'number'].includes(parsed.type)) return input;
+    try { return formulaNumber(parsed.value); } catch { return input; }
   }
   if (/^(date)$/.test(base)) return parseDateText(input, locale, 'locale')?.value ?? input;
   if (/^(datetime|timestamp|timestamptz|timestamp with time zone|timestamp without time zone|smalldatetime)$/.test(base)) {

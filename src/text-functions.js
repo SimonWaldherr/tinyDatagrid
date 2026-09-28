@@ -1,3 +1,4 @@
+import { formulaNumber } from './numeric-values.js';
 // Text formulas use scalar text and Unicode code points for slicing/padding.
 // Regex patterns/flags follow JavaScript RegExp; patterns are never JavaScript code.
 const MAX_TEXT = 1_000_000;
@@ -9,7 +10,7 @@ function text(value) {
 }
 function integer(value) {
   if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) throw new TypeError('Expected integer');
-  const n = Number(value);
+  const n = formulaNumber(value);
   if (!Number.isSafeInteger(n)) throw new RangeError('Expected safe integer');
   return n;
 }

@@ -1,11 +1,6 @@
-const isFormulaError = value => typeof value === 'string' && /^#(?:REF!|N\/A|VALUE!|NAME[?!]|NUM!|DIV\/0!|ERROR!|CYCLE!|RANGE!)/.test(value);
-const asNumber = value => {
-  if (value === '' || value == null) return 0;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'boolean') return value ? 1 : 0;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-};
+import { formulaNumber, parseNumericValue } from './numeric-values.js';
+const isFormulaError = value => typeof value === 'string' && /^#(?:REF!|N\/A|VALUE!|NAME[?!]|NUM!|DIV\/0!|ERROR!|CYCLE!|SPILL!|RANGE!)/.test(value);
+const asNumber = formulaNumber;
 const flatten = value => Array.isArray(value) ? value.flat(Infinity) : [value];
 const normalizedRows = value => Array.isArray(value) ? (Array.isArray(value[0]) ? value : value.map(item => [item])) : [[value]];
 
@@ -22,10 +17,10 @@ function compareValues(left, right) {
     if (a != null && b != null) return a < b ? -1 : a > b ? 1 : 0;
   }
   const padded = value => typeof value === 'string' && /^[-+]?0\d+$/.test(value.trim());
-  const a = Number(left), b = Number(right);
-  const numericLeft = !padded(left) && left !== '' && left != null && Number.isFinite(a);
-  const numericRight = !padded(right) && right !== '' && right != null && Number.isFinite(b);
-  if (numericLeft && numericRight) return Math.sign(a - b);
+  const lp=parseNumericValue(left),rp=parseNumericValue(right),a=lp.value,b=rp.value;
+  const numericLeft = !padded(left) && left !== '' && left != null && lp.numeric && !lp.lossy;
+  const numericRight = !padded(right) && right !== '' && right != null && rp.numeric && !rp.lossy;
+  if (numericLeft && numericRight) return a<b?-1:a>b?1:0;
   return String(left ?? '').localeCompare(String(right ?? ''), undefined, { numeric: true, sensitivity: 'base' });
 }
 

@@ -1,3 +1,4 @@
+import { formulaNumber } from './numeric-values.js';
 // Synchronous, dependency-free formula extensions. Angles in GEO are degrees;
 // GEOM uses Cartesian coordinates. See docs/functions.md for signatures.
 const radians = degrees => degrees * Math.PI / 180;
@@ -5,7 +6,7 @@ const degrees = radians => radians * 180 / Math.PI;
 const wrap = angle => ((angle % 360) + 360) % 360;
 const number = value => {
   if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) throw new TypeError('Expected a number');
-  const result = Number(value);
+  const result = formulaNumber(value);
   if (Number.isNaN(result)) throw new TypeError('Expected numeric text');
   if (!Number.isFinite(result)) throw new RangeError('Expected a finite number');
   return result;

@@ -1,6 +1,9 @@
-import TinyDatagrid, { parseA1, toA1 } from '../src/tinygrid.js';
+import { inferDelimitedRows, inferDataValue } from '../src/data-types.js';
+import TinyDatagrid, { parseA1, toA1, parseCSV, detectDelimiter } from '../src/tinygrid.js';
 import { translator } from './i18n.js';
 import { freezePanes, conditionalFormatting, dataValidation } from '../src/features.js';
+import { sheetPivots } from '../src/pivots.js';
+import { functionHelp, documentedFunctions } from '../src/function-help.js';
 
 const $ = selector => document.querySelector(selector);
 const all = selector => [...document.querySelectorAll(selector)];
@@ -14,7 +17,7 @@ if (!['system', 'light', 'dark'].includes(theme)) theme = 'system';
 document.documentElement.dataset.theme = theme;
 $('#theme').value = theme;
 $('#language').value = language;
-const grid = new TinyDatagrid('#grid', { rows: 60, columns: 12, columnWidth: 120, rowHeight: 31, historyLimit: 100, plugins: [freezePanes(), conditionalFormatting(), dataValidation()], locale: language });
+const grid = new TinyDatagrid('#grid', { rows: 60, columns: 12, columnWidth: 120, rowHeight: 31, historyLimit: 100, externalVariables: { vat: 0.19 }, plugins: [freezePanes(), conditionalFormatting(), dataValidation(), sheetPivots()], locale: language });
 let shareError = false;
 let shared = false;
 if (location.hash.startsWith('#tg1.')) {
@@ -35,9 +38,12 @@ if (!shared) {
     ['Kabeltrommel', 'Elektronik', 'Landau', 7, 5, 54.9, '=D9*F9', '=IF(D9<E9,"Nachbestellen","OK")'],
     ['Handschuhe', 'Sicherheit', 'Dingolfing', 12, 8, 6.5, '=D10*F10', '=IF(D10<E10,"Nachbestellen","OK")']
   ]);
-  [170,135,135,90,110,115,125,145].forEach((width,col) => grid.setColumnWidth(col,width));
-  grid.createTable({r1:0,c1:0,r2:9,c2:7});
+  grid.setCell(0,8,t('grossValue'));
+  for(let row=1;row<=9;row++)grid.setCell(row,8,`=G${row+1}*(1+@vat)`);
+  [170,135,135,90,110,115,125,145,130].forEach((width,col) => grid.setColumnWidth(col,width));
+  grid.createTable({r1:0,c1:0,r2:9,c2:8});
   grid.selection={r1:1,c1:5,r2:9,c2:6};grid.formatSelection({type:'currency',currency:'EUR',maximumFractionDigits:2});
+  grid.selection={r1:1,c1:8,r2:9,c2:8};grid.formatSelection({type:'currency',currency:'EUR',maximumFractionDigits:2});
   grid.setFreezePanes({rows:1,columns:1});
   grid.setConditionalFormats([{range:{r1:1,c1:7,r2:9,c2:7},operator:'eq',value:'Nachbestellen',style:{color:'var(--tg-error)',backgroundColor:'var(--tg-error-bg)',fontWeight:'bold'}}]);
   grid.setValidationRules([{range:{r1:1,c1:3,r2:9,c2:4},type:'integer',min:0,allowEmpty:false,message:t('stockValidation')}]);
@@ -87,6 +93,7 @@ function syncControls(){
     const label=`${t(key)} (${count}) · ${shortcut}`;$(id).setAttribute('aria-label',label);$(id).title=label;
   }
   $('#sortAscBtn').disabled=locked||!grid.table;$('#sortDescBtn').disabled=locked||!grid.table;
+  $('#insertPivotBtn').disabled=locked||!grid.table;$('#removePivotBtn').disabled=locked||!grid.getCell(grid.anchor.row,grid.anchor.col).pivotOwner;
   $('#clearFiltersBtn').disabled=!grid.columnFilters.size;
 }
 function setInspector(open){$('#inspector').hidden=!open;$('#inspectorBtn').setAttribute('aria-expanded',String(open));$('#sideToggle').setAttribute('aria-expanded',String(open));}
@@ -104,7 +111,7 @@ function applyLanguage(){
   all('[data-label]').forEach(el=>{el.setAttribute('aria-label',t(el.dataset.label));el.title=t(el.dataset.label);});
   all('[data-title]').forEach(el=>el.title=t(el.dataset.title));
   all('[data-placeholder]').forEach(el=>el.placeholder=t(el.dataset.placeholder));
-  grid.setLocale(language);syncSelection();refreshPivotFields();renderPivot();refreshSearch(false);
+  grid.setLocale(language);syncSelection();refreshPivotFields();renderPivot();refreshSearch(false);refreshFunctionHelp();refreshReferences();
 }
 $('#language').onchange=()=>{language=$('#language').value;savePreference('language',language);applyLanguage();};
 $('#theme').onchange=()=>{theme=$('#theme').value;document.documentElement.dataset.theme=theme;savePreference('theme',theme);};
@@ -112,9 +119,51 @@ $('#theme').onchange=()=>{theme=$('#theme').value;document.documentElement.datas
 $('#sheetTab').onclick=()=>{if(!grid.readOnly){$('#sheetName').focus();$('#sheetName').select();}};
 $('#sheetName').onchange=()=>{const name=$('#sheetName').value.trim();if(name&&!grid.readOnly&&name!==grid.sheetName){grid.setSheetName(name);}syncName();};
 $('#sheetName').onkeydown=e=>{if(e.key==='Enter'){$('#sheetName').blur();grid.el.focus({preventScroll:true});}if(e.key==='Escape'){syncName();grid.el.focus({preventScroll:true});}};
-$('#formulaBar').onsubmit=e=>{e.preventDefault();if(grid.readOnly)return;grid.setCell(grid.anchor.row,grid.anchor.col,$('#formula').value);grid.el.focus({preventScroll:true});syncSelection();};
+$('#formulaBar').onsubmit=e=>{e.preventDefault();if(grid.readOnly)return;if(grid.setCell(grid.anchor.row,grid.anchor.col,$('#formula').value)===false)return;grid.el.focus({preventScroll:true});syncSelection();};
 $('#formulaCancel').onclick=()=>{grid.el.focus({preventScroll:true});syncSelection();};
-$('#formula').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();grid.el.focus({preventScroll:true});syncSelection();}};
+$('#formula').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#formulaBar').requestSubmit();return}if(e.key==='Escape'){e.preventDefault();grid.el.focus({preventScroll:true});syncSelection();}};
+let expandedFormula=false,traceMode='precedents';
+function resizeFormula(){const input=$('#formula');input.style.height='auto';input.style.height=Math.min(expandedFormula?220:84,Math.max(32,input.scrollHeight))+'px';}
+$('#formulaExpand').onclick=()=>{expandedFormula=!expandedFormula;$('#formulaExpand').setAttribute('aria-expanded',String(expandedFormula));$('#formula').rows=expandedFormula?5:1;resizeFormula();};
+function showFunction(name){const info=functionHelp(name,language,grid.options.functionHelp||{});$('#functionSignature').textContent=info.signature;$('#functionDescription').textContent=info.description;}
+function refreshFunctionHelp(){
+  const query=$('#functionSearch').value.toUpperCase(),selected=$('#functionList').value;
+  const names=[...new Set([...documentedFunctions(),...Object.keys(grid.engine.functions)])].sort().filter(name=>name.includes(query));
+  $('#functionList').replaceChildren(...names.map(name=>new Option(name,name)));
+  if(names.includes(selected))$('#functionList').value=selected;
+  const text=$('#formula').value.slice(0,$('#formula').selectionStart).replace(/"(?:""|[^"])*"/g,'');
+  const current=[...text.matchAll(/([A-Za-z_][A-Za-z0-9_.]*)\s*\(/g)].at(-1)?.[1].toUpperCase();
+  if(!query&&names.includes(current))$('#functionList').value=current;
+  if(names.length)showFunction($('#functionList').value);else{$('#functionSignature').textContent='';$('#functionDescription').textContent=t('noMatches');}
+}
+$('#formulaHelpBtn').onclick=()=>{const open=$('#formulaHelpPanel').hidden;$('#formulaHelpPanel').hidden=!open;$('#formulaHelpBtn').setAttribute('aria-expanded',String(open));if(open)refreshFunctionHelp();};
+$('#functionSearch').oninput=refreshFunctionHelp;$('#functionList').onchange=()=>showFunction($('#functionList').value);
+$('#formula').oninput=()=>{resizeFormula();if(!$('#formulaHelpPanel').hidden)refreshFunctionHelp();};
+$('#formula').onclick=()=>{if(!$('#formulaHelpPanel').hidden)refreshFunctionHelp();};
+function refreshReferences(){
+  all('.tg-trace').forEach(cell=>cell.classList.remove('tg-trace'));if($('#dependencyPanel').hidden)return;
+  const items=traceMode==='precedents'?grid.getPrecedents():grid.getDependents(),list=$('#referenceList');list.replaceChildren();
+  for(const item of items){
+    const range=traceMode==='precedents'?{r1:Math.min(item.a.row,item.b.row),r2:Math.max(item.a.row,item.b.row),c1:Math.min(item.a.col,item.b.col),c2:Math.max(item.a.col,item.b.col)}:{r1:item.row,r2:item.row,c1:item.col,c2:item.col};
+    const button=document.createElement('button');button.type='button';button.textContent=traceMode==='precedents'?item.text:(item.sheet?item.sheet+'!':'')+item.address;
+    const ws=grid.feature('worksheets'),local=item.sheetId===(ws?.activeId??null)&&!(item.sheet&&item.sheetId==null&&traceMode==='precedents');
+    button.disabled=!local&&!item.sheetId;
+    button.onclick=()=>{if(!local&&ws&&!ws.select(item.sheetId))return;grid.goTo(range.r1,range.c1);grid.select(range.r2,range.c2,true);grid.el.focus({preventScroll:true});};list.append(button);
+    if(local)all('#grid [role="gridcell"]').filter(cell=>+cell.dataset.row>=range.r1&&+cell.dataset.row<=range.r2&&+cell.dataset.col>=range.c1&&+cell.dataset.col<=range.c2).forEach(cell=>cell.classList.add('tg-trace'));
+  }
+  if(traceMode==='precedents'){
+    const formula=String(grid.getRawValue(grid.anchor.row,grid.anchor.col)).replace(/"(?:""|[^"])*"/g,'');
+    for(const name of new Set([...formula.matchAll(/@([A-Za-z_][A-Za-z0-9_.]*)/g)].map(m=>m[1]))){const span=document.createElement('span');span.textContent=`@${name} = ${fmt(grid.getVariable(name))}`;list.append(span)}
+  }
+  if(!list.childNodes.length)list.textContent=t('noReferences');
+}
+$('#traceBtn').onclick=()=>{const open=$('#dependencyPanel').hidden;$('#dependencyPanel').hidden=!open;$('#traceBtn').setAttribute('aria-expanded',String(open));refreshReferences();};
+for(const [id,mode] of [['#precedentsBtn','precedents'],['#dependentsBtn','dependents']])$(id).onclick=()=>{traceMode=mode;$('#precedentsBtn').setAttribute('aria-pressed',String(mode==='precedents'));$('#dependentsBtn').setAttribute('aria-pressed',String(mode==='dependents'));refreshReferences();};
+$('#moveRangeBtn').onclick=()=>{if(!grid.readOnly){$('#moveDialog').showModal();$('#moveTarget').focus();}};
+$('#closeMove').onclick=()=>$('#moveDialog').close();
+$('#moveForm').onsubmit=e=>{e.preventDefault();const point=parseA1($('#moveTarget').value);if(!point)return;try{if(grid.moveRange(selection(),point.row,point.col)===false){notify(t('moveRejected'));return}$('#moveDialog').close();syncData();}catch(error){fail(error)}};
+grid.on('historyconflict',()=>notify(t('historyConflict')));
+grid.on('change',refreshReferences);grid.on('move',refreshReferences);grid.on('scroll',()=>requestAnimationFrame(refreshReferences));
 $('#nameBox').onkeydown=e=>{if(e.key!=='Enter')return;e.preventDefault();const [start,end,...rest]=$('#nameBox').value.trim().split(':');const a=parseA1(start||''),b=parseA1(end||start||'');if(rest.length||!a||!b||[a,b].some(p=>p.row<0||p.row>=10000||p.col<0||p.col>=256)||(a&&b&&(Math.abs(a.row-b.row)+1)*(Math.abs(a.col-b.col)+1)>10000)){notify(t('invalidAddress'));return;}
   // Keep navigation bounded to a manageable DOM size; larger sheets use virtualization.
   if(Math.max(a.row,b.row)>500||Math.max(a.col,b.col)>100)grid.setVirtualization(true);
@@ -122,6 +171,7 @@ $('#nameBox').onkeydown=e=>{if(e.key!=='Enter')return;e.preventDefault();const [
 function undo(){if(grid.undo())notify(t('undone'));}
 function redo(){if(grid.redo())notify(t('redone'));}
 $('#undoBtn').onclick=undo;$('#redoBtn').onclick=redo;
+$('#vatRate').onchange=()=>grid.setExternalVariable('vat',Number($('#vatRate').value));
 $('#recalculateBtn').onclick=()=>{grid.recalculate();notify(t('recalculated'));};
 $('#readOnlyBtn').onclick=()=>grid.setReadOnly(!grid.readOnly);
 $('#boldBtn').onclick=()=>grid.styleSelection({fontWeight:grid.getCell(grid.anchor.row,grid.anchor.col).style?.fontWeight==='bold'?'normal':'bold'});
@@ -193,17 +243,49 @@ function renderPivot(){
   const chartTitle=document.createElement('p');chartTitle.className='hint';chartTitle.textContent=`${t('chart')} · ${rows[0][1]??valueField}`;chart.append(chartTitle);
   chartRows.slice(0,12).forEach(row=>{const wrap=document.createElement('div'),label=document.createElement('span'),value=document.createElement('strong'),track=document.createElement('div'),bar=document.createElement('span');wrap.className='chart-row';label.textContent=String(row[0]);value.textContent=fmt(row[1]);track.className='chart-track';bar.style.width=`${Math.abs(Number(row[1])||0)/max*100}%`;track.append(bar);wrap.append(label,value,track);chart.append(wrap);});
 }
+$('#insertPivotBtn').onclick=()=>{
+  if(grid.readOnly||!grid.table)return;
+  try{
+    const source={r1:grid.table.headerRow,c1:grid.table.c1,r2:grid.table.r2,c2:grid.table.c2},target={...grid.anchor};
+    grid.feature('pivots').insert({source,target,config:{rows:[$('#pivotRows').value],columns:$('#pivotColumns').value?[$('#pivotColumns').value]:[],values:[{field:$('#pivotValues').value,aggregate:$('#pivotAggregate').value,as:$('#pivotValues').value}]}});
+    syncData();notify(t('pivotInserted'));
+  }catch(error){fail(error)}
+};
+$('#removePivotBtn').onclick=()=>{const a=grid.anchor,pivot=grid.feature('pivots').list().find(p=>a.row>=p.output.r1&&a.row<=p.output.r2&&a.col>=p.output.c1&&a.col<=p.output.c2);if(pivot&&grid.feature('pivots').remove(pivot.id))syncData();};
 ['#pivotRows','#pivotColumns','#pivotValues','#pivotAggregate'].forEach(id=>$(id).onchange=renderPivot);
 function syncData(){syncSelection();refreshPivotFields();renderPivot();if(!$('#searchBar').hidden)refreshSearch(false);}
 grid.on('history',syncControls);
 ['change','format','fill','move','filter','sort','table','rowhide','rowshow','columnhide','columnshow','resize','variable'].forEach(event=>grid.on(event,syncData));
-grid.on('select',syncSelection);grid.on('readonly',syncControls);
+grid.on('select',syncSelection);grid.on('select',()=>{resizeFormula();refreshReferences();if(!$('#formulaHelpPanel').hidden)refreshFunctionHelp();});grid.on('readonly',syncControls);
 
 function showDialog(id){grid.commitEdit();$(id).showModal();}
 $('#helpBtn').onclick=()=>showDialog('#helpDialog');$('#exportBtn').onclick=()=>showDialog('#exportDialog');
 $('#importBtn').onclick=()=>{if(!grid.readOnly)showDialog('#importDialog');};
 $('#chooseFileBtn').onclick=()=>{if(!grid.readOnly)$('#dataFile').click();};
-$('#dataFile').onchange=async()=>{const file=$('#dataFile').files?.[0];if(!file)return;try{if(grid.readOnly)return;await grid.importFile(file,{locale:language});if(!grid.table&&!/\.json$/i.test(file.name))grid.createTable(grid.getUsedRange());syncData();$('#importDialog').close();notify(`${t('imported')}: ${file.name}`);}catch(error){fail(error);}finally{$('#dataFile').value='';}};
+let pendingImport=null;
+function renderImportPreview(){
+  const area=$('#importPreviewTable');area.replaceChildren();if(!pendingImport)return;
+  $('#importFilename').textContent=pendingImport.file.name;
+  const delimited=/\.(csv|tsv|tab|txt)$/i.test(pendingImport.file.name);$('#inferImportTypes').disabled=!delimited;
+  if(!delimited){area.textContent=t('importPreviewOther');return}
+  const raw=parseCSV(pendingImport.text,/\.(tsv|tab)$/i.test(pendingImport.file.name)?'\t':detectDelimiter(pendingImport.text));
+  const inferred=$('#inferImportTypes').checked?inferDelimitedRows(raw,{locale:pendingImport.locale}):null;
+  const table=document.createElement('table'),caption=document.createElement('caption');caption.textContent=t('importPreviewSample');table.append(caption);
+  for(let r=0;r<Math.min(6,raw.length);r++){
+    const row=document.createElement('tr');
+    for(let c=0;c<Math.min(8,raw[r].length);c++){
+      const cell=document.createElement('td'),value=inferred?inferred.rows[r][c]:raw[r][c],type=!inferred||inferred.textCells.has(`${r},${c}`)?'text':inferDataValue(value,{locale:pendingImport.locale}).type;
+      cell.textContent=`${raw[r][c]} → ${value instanceof Date?value.toISOString():String(value??'')} (${type}${typeof value==='bigint'?' / BigInt':''})`;row.append(cell);
+    }
+    table.append(row);
+  }
+  area.append(table);
+}
+$('#inferImportTypes').onchange=renderImportPreview;
+$('#importDialog').addEventListener('close',()=>{pendingImport=null;$('#importPreview').hidden=true;});
+$('#dataFile').onchange=async()=>{const file=$('#dataFile').files?.[0];if(!file)return;try{if(grid.readOnly)return;const text=await file.text();pendingImport={file,text,locale:language};$('#importPreview').hidden=false;renderImportPreview();}catch(error){fail(error);}finally{$('#dataFile').value='';}};
+$('#applyImport').onclick=async()=>{if(!pendingImport||grid.readOnly)return;const pending=pendingImport;try{await grid.importFile(pending.file,{locale:pending.locale,inferTypes:$('#inferImportTypes').checked});if(!grid.table&&!/\.json$/i.test(pending.file.name))grid.createTable(grid.getUsedRange());syncData();$('#importDialog').close();notify(`${t('imported')}: ${pending.file.name}`);}catch(error){fail(error);}};
+
 function download(filename,content,type){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('#downloadBtn').onclick=()=>{try{
   const format=$('#exportFormat').value,base=grid.sheetName.replace(/[\\/:*?"<>|]/g,'-')||'tiny-datagrid';
