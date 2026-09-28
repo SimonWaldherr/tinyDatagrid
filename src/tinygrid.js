@@ -5,6 +5,12 @@
 import { inferAutofillSeries, findAutofillExtent } from './autofill.js';
 import { inferColumnType, coerceDataValue, inferDelimitedRows } from './data-types.js';
 import { createLookupFunctions } from './lookups.js';
+import { createExtendedFunctions } from './extended-functions.js';
+import { createTextFunctions } from './text-functions.js';
+import { translate } from './i18n.js';
+import { difference, applyDifference } from './history.js';
+import { Dependencies, CellMap } from './dependencies.js';
+let gridSequence=0;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 function toPortableValue(value){if(value instanceof Date)return {$tinyDatagridType:'date',value:value.toISOString()};if(typeof value==='bigint')return {$tinyDatagridType:'bigint',value:String(value)};if(value instanceof ArrayBuffer)return {$tinyDatagridType:'binary',value:[...new Uint8Array(value)]};if(ArrayBuffer.isView(value))return {$tinyDatagridType:'binary',value:[...new Uint8Array(value.buffer,value.byteOffset,value.byteLength)]};if(Array.isArray(value))return value.map(toPortableValue);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,toPortableValue(item)]));return value}
@@ -231,10 +237,18 @@ class FormulaParser {
   }
 }
 
+function normalizeFunctionName(name) {
+  if(typeof name!=='string')throw new TypeError('Formula function names must be strings');
+  const normalized=name.trim().replace(/^=/,'').toUpperCase();
+  if(!/^[A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)*$/.test(normalized))throw new TypeError(`Invalid formula function name: ${name}`);
+  return normalized;
+}
+
 export class FormulaEngine {
   constructor(grid) {
     this.grid = grid;
     this.cache = new Map();
+    this.dependencies = new Dependencies(this.cache);
     this.locals = [];
     this.functions = {
       SUM: (...xs) => flatten(xs).reduce((a,v)=>a+asNumber(v),0),
@@ -261,7 +275,7 @@ export class FormulaEngine {
       CONCAT: (...xs)=>flatten(xs).join(''), LEN:x=>String(x ?? '').length,
       TEXTJOIN:(separator,ignoreEmpty,...xs)=>flatten(xs).filter(v=>!ignoreEmpty||v!==''&&v!=null).join(String(separator??'')),
       UPPER:x=>String(x??'').toUpperCase(), LOWER:x=>String(x??'').toLowerCase(), PROPER:x=>String(x??'').toLocaleLowerCase().replace(/\b\p{L}/gu,c=>c.toLocaleUpperCase()),
-      TRIM:x=>String(x??'').trim().replace(/\s+/g,' '), LEFT:(x,n=1)=>Array.from(String(x??'')).slice(0,Math.max(0,asNumber(n))).join(''),
+      LEFT:(x,n=1)=>Array.from(String(x??'')).slice(0,Math.max(0,asNumber(n))).join(''),
       RIGHT:(x,n=1)=>{const count=Math.max(0,Math.trunc(asNumber(n)));return count?Array.from(String(x??'')).slice(-count).join(''):''}, MID:(x,start,n)=>Array.from(String(x??'')).slice(Math.max(0,asNumber(start)-1),Math.max(0,asNumber(start)-1)+Math.max(0,asNumber(n))).join(''),
       FIND:(needle,haystack,start=1)=>{const i=String(haystack??'').indexOf(String(needle??''),Math.max(0,asNumber(start)-1));return i<0?'#VALUE!':i+1},
       SEARCH:(needle,haystack,start=1)=>{const i=String(haystack??'').toLocaleLowerCase().indexOf(String(needle??'').toLocaleLowerCase(),Math.max(0,asNumber(start)-1));return i<0?'#VALUE!':i+1},
@@ -275,6 +289,8 @@ export class FormulaEngine {
       COUNTIFS:(...xs)=>{if(!xs.length||xs.length%2)return '#VALUE!';const ranges=xs.filter((_,i)=>i%2===0).map(flatten),criteria=xs.filter((_,i)=>i%2===1);return ranges[0].filter((_,i)=>criteria.every((c,j)=>criteriaMatches(ranges[j][i],c))).length},
       AVERAGEIFS:(averageRange,...xs)=>{if(!xs.length||xs.length%2)return '#VALUE!';const vals=flatten(averageRange),ranges=xs.filter((_,i)=>i%2===0).map(flatten),criteria=xs.filter((_,i)=>i%2===1),hit=vals.filter((v,i)=>criteria.every((c,j)=>criteriaMatches(ranges[j][i],c))&&v!==''&&v!=null);return hit.length?hit.reduce((s,v)=>s+asNumber(v),0)/hit.length:'#DIV/0!'},
       ...createLookupFunctions(),
+      ...createExtendedFunctions(),
+      ...createTextFunctions(),
       FILTER:(array,include,ifEmpty='')=>{const rows=normalizedRows(array),mask=flatten(include);const out=rows.filter((_,i)=>Boolean(mask[i]));return out.length?out:ifEmpty},
       UNIQUE:array=>{const rows=normalizedRows(array),seen=new Set();return rows.filter(row=>{const k=JSON.stringify(row);if(seen.has(k))return false;seen.add(k);return true})},
       SORT:(array,index=1,order=1)=>{const rows=normalizedRows(array),col=Math.max(0,Math.trunc(asNumber(index))-1),direction=asNumber(order)<0?-1:1;return [...rows].sort((a,b)=>{const x=a[col],y=b[col];return (typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''),undefined,{numeric:true,sensitivity:'base'}))*direction})},
@@ -294,8 +310,43 @@ export class FormulaEngine {
       HOUR:x=>new Date(x).getHours(), MINUTE:x=>new Date(x).getMinutes(), SECOND:x=>new Date(x).getSeconds(), DAYS:(end,start)=>Math.round((new Date(end)-new Date(start))/86400000),
       PI:()=>Math.PI, EXP:x=>Math.exp(asNumber(x)), LN:x=>Math.log(asNumber(x)), LOG:(x,base=10)=>Math.log(asNumber(x))/Math.log(asNumber(base)), POWER:(a,b)=>Math.pow(asNumber(a),asNumber(b))
     };
+    this._builtInFunctions=new Map(Object.entries(this.functions));
+    this._customFunctions=new Set();
+    this.registerFunctions(grid.options?.functions ?? {});
   }
-  clearCache() { this.cache.clear(); }
+  registerFunction(name,fn) { return this.registerFunctions({[normalizeFunctionName(name)]:fn}); }
+  registerFunctions(functions) {
+    if(!functions||typeof functions!=='object'||Array.isArray(functions))throw new TypeError('functions must be an object mapping names to JavaScript functions');
+    const entries=Object.entries(functions).map(([name,fn])=>{
+      const normalized=normalizeFunctionName(name);
+      if(typeof fn!=='function')throw new TypeError(`Formula function ${name} must be a JavaScript function`);
+      return [normalized,fn];
+    });
+    if(new Set(entries.map(([name])=>name)).size!==entries.length)throw new TypeError('Duplicate formula function names after normalization');
+    for(const [name,fn] of entries){this.functions[name]=fn;this._customFunctions.add(name);}
+    this.clearCache();return this;
+  }
+  unregisterFunction(name) {
+    name=normalizeFunctionName(name);
+    if(!this._customFunctions.delete(name))return false;
+    if(this._builtInFunctions.has(name))this.functions[name]=this._builtInFunctions.get(name);else delete this.functions[name];
+    this.clearCache();return true;
+  }
+  _callCustomFunction(name,args) {
+    const error=args.flatMap(flatten).find(isFormulaError);if(error)return error;
+    return this._invokeFunction(this.functions[name],args);
+  }
+  _invokeFunction(fn,args) {
+    try {
+      const result=fn(...args);
+      if(result&&typeof result.then==='function'){
+        Promise.resolve(result).catch(()=>{});
+        return '#ERROR! Custom formula functions must return synchronously';
+      }
+      return result;
+    } catch(error) { return `#ERROR! ${error instanceof Error?error.message:String(error)}`; }
+  }
+  clearCache() { this.dependencies.clear(); }
   evaluateFormula(formula, visiting = new Set()) {
     try {
       const tokens = new FormulaTokenizer(formula.replace(/^=/,'')).tokenize();
@@ -315,9 +366,12 @@ export class FormulaEngine {
           const p = parseA1(upper); return this.grid.getComputedValue(p.row,p.col,visiting);
         }
         const key = n.name.startsWith('@') ? n.name.slice(1) : n.name;
+        this.dependencies.read(`@${key}`);
         if (this.grid.variables.has(key)) {
           const v = this.grid.variables.get(key);
-          return typeof v === 'string' && v.startsWith('=') ? this.evaluateFormula(v, visiting) : v;
+          if(typeof v !== 'string'||!v.startsWith('='))return v;
+          const variableKey=`@${key}`;if(visiting.has(variableKey))return '#CYCLE!';
+          visiting.add(variableKey);try{return this.evaluateFormula(v,visiting)}finally{visiting.delete(variableKey)}
         }
         return `#NAME? ${n.name}`;
       }
@@ -340,6 +394,7 @@ export class FormulaEngine {
         }
       }
       case 'call': {
+        if(this._customFunctions.has(n.name))return this._callCustomFunction(n.name,n.args.map(arg=>this.evalNode(arg,visiting)));
         if(n.name==='IF'){
           if(n.args.length<2||n.args.length>3)return '#VALUE!';const condition=this.evalNode(n.args[0],visiting);if(isFormulaError(condition))return condition;
           if(condition)return this.evalNode(n.args[1],visiting);return n.args.length===3?this.evalNode(n.args[2],visiting):false;
@@ -381,7 +436,7 @@ export class FormulaEngine {
         const toleratesErrors=['COUNT','COUNTA','COUNTBLANK','COUNTIF','COUNTIFS'];
         if(lookupFunctions.includes(n.name)){if(isFormulaError(args[0]))return args[0]}
         else if(!toleratesErrors.includes(n.name)){const error=args.flatMap(flatten).find(isFormulaError);if(error)return error}
-        try { return fn(...args); } catch(e) { return `#ERROR! ${e.message}`; }
+        return this._invokeFunction(fn,args);
       }
     }
   }
@@ -413,9 +468,9 @@ export class PivotEngine {
     return {
       rowFields,colFields,values:valueDefs,
       rowKeys:rowKeys.map(k=>k.split('\u001F')), colKeys:colKeys.map(k=>k.split('\u001F')), matrix,
-      toTable(){
+      toTable({totalLabel='Total'}={}){
         const header=[...rowFields];
-        for(const ck of this.colKeys){ for(const vd of valueDefs) header.push(`${ck.join(' / ') || 'Total'} · ${vd.as||vd.field}`); }
+        for(const ck of this.colKeys){ for(const vd of valueDefs) header.push(`${ck.join(' / ') || totalLabel} · ${vd.as||vd.field}`); }
         const rows=[header];
         this.rowKeys.forEach((rk,ri)=>{ const row=[...rk]; this.colKeys.forEach((ck,ci)=>valueDefs.forEach(vd=>row.push(matrix[ri][ci][vd.as||(vd.field+'|'+vd.aggregate)]))); rows.push(row); });
         return rows;
@@ -431,18 +486,53 @@ export class TinyDatagrid {
     this.options = { rows:100, columns:26, rowHeight:28, columnWidth:110, headerWidth:52, headerHeight:28, ...options };
     const overscan=Math.trunc(Number(this.options.virtualizationOverscan??6));
     this.virtualization=Boolean(this.options.virtualization);this.virtualizationOverscan=Number.isFinite(overscan)?Math.max(0,overscan):6;this._virtualFrame=null;this._resizeObserver=null;
+    this.locale=options.locale||'en';this._gridId=`tinygrid-${++gridSequence}`;
     this.rowCount=this.options.rows; this.colCount=this.options.columns;
     this.rowHeights=Array(this.rowCount).fill(this.options.rowHeight); this.colWidths=Array(this.colCount).fill(this.options.columnWidth);
-    this.cells=new Map(); this.variables=new Map(); this.engine=new FormulaEngine(this); this.selection={r1:0,c1:0,r2:0,c2:0}; this.anchor={row:0,col:0}; this.hiddenColumns=new Set(); this.hiddenRows=new Set();
+    this._features=new Map();this.validationRules=[];this.cells=new Map(); this.variables=new Map(); this.engine=new FormulaEngine(this); this.selection={r1:0,c1:0,r2:0,c2:0}; this.anchor={row:0,col:0}; this.hiddenColumns=new Set(); this.hiddenRows=new Set();
     this.table=null;this.columnFilters=new Map();this.filteredRows=new Set();this.sheetName=options.sheetName||'Sheet1';this.freezePanes={rows:0,columns:0};this.conditionalFormats=[];
     this.sqlBinding=null;
     this.readOnly=Boolean(options.readOnly);
     this.listeners=new Map(); this._abort=new AbortController(); this._destroyed=false; this._dragPayload=null; this._fillState=null; this._editing=null;
-    this._history=[]; this._future=[]; this.historyLimit=options.historyLimit??100;
+    this._history=[]; this._future=[]; this.historyLimit=Math.max(0,Math.trunc(Number(options.historyLimit??100))||0);this._historyDepth=0;this._historyBefore=null;
     this.build();
+    for(const plugin of options.plugins||[])this.use(plugin);
     if (options.variables) Object.entries(options.variables).forEach(([k,v])=>this.variables.set(k,v));
-    this.render(); this.bind();
+    this.setLocale(this.locale); this.bind();
     if (options.data) this.load(options.data);
+  }
+  get cells(){return this._cells}
+  set cells(entries){this._cells=new CellMap(this,entries);this.engine?.clearCache()}
+  use(plugin){
+    if(!plugin||typeof plugin.name!=='string'||typeof plugin.setup!=='function')throw new TypeError('Invalid grid plugin');
+    if(this._features.has(plugin.name))throw new Error(`Plugin already installed: ${plugin.name}`);
+    const feature=plugin.setup(this)||{};this._features.set(plugin.name,feature);this.render();return this;
+  }
+  feature(name){return this._features.get(name)}
+  removePlugin(name){const feature=this._features.get(name);if(!feature)return false;feature.destroy?.();this._features.delete(name);this.render();return true}
+  _validateWrite(key,value){
+    if(this._restoring)return;const validator=this.feature('validation');if(!validator)return;
+    const [row,col]=key.split(',').map(Number),message=validator.validate(row,col,value);
+    if(message){const error=new Error(message);error.validation={row,col,value,message};throw error}
+  }
+  setValidationRules(rules=[]){this.feature('validation')?.checkRules(rules);this.validationRules=structuredClone(rules);this.renderCells();this.emit('validationrules',{rules:this.validationRules});return this}
+  registerFunction(name,fn){return this.registerFunctions({[normalizeFunctionName(name)]:fn})}
+  registerFunctions(functions){this.engine.registerFunctions(functions);this.render();this.emit('change',{type:'functions'});return this}
+  unregisterFunction(name){if(!this.engine.unregisterFunction(name))return false;this.render();this.emit('change',{type:'functions'});return true}
+  t(key){return translate(this.locale,key)}
+  setLocale(locale='en'){
+    this.locale=locale;this.el.lang=locale;this.el.setAttribute('aria-label',this.options.ariaLabel||this.t('grid'));
+    this.editor.setAttribute('aria-label',this.t('editor'));this.fillHandle.setAttribute('aria-label',this.t('fill'));this.fillHandle.title=this.t('fillHint');
+    this.filterMenu.setAttribute('aria-label',this.t('filter'));this.autofillMenu.setAttribute('aria-label',this.t('autofill'));
+    this._closeFilterMenu();this._closeColumnMenu();this._closeAutofillMenu(true);this.render();return this;
+  }
+  styleSelection(style={}){
+    if(this.readOnly)return false;
+    const s=this.selection;
+    for(let r=Math.min(s.r1,s.r2);r<=Math.max(s.r1,s.r2);r++)for(let c=Math.min(s.c1,s.c2);c<=Math.max(s.c1,s.c2);c++)if(this.isCellReadOnly(r,c))return false;
+    this._recordHistory();
+    for(let r=Math.min(s.r1,s.r2);r<=Math.max(s.r1,s.r2);r++)for(let c=Math.min(s.c1,s.c2);c<=Math.max(s.c1,s.c2);c++)this.cells.set(this.key(r,c),{...this.getCell(r,c),style:{...this.getCell(r,c).style,...style}});
+    this.renderCells();this.emit('format',{range:{...s},style:{...style}});return true;
   }
   _listen(target,type,fn,options={}){target.addEventListener(type,fn,{...options,signal:this._abort.signal})}
   on(type,fn){(this.listeners.get(type)||this.listeners.set(type,new Set()).get(type)).add(fn);return()=>this.listeners.get(type)?.delete(fn)}
@@ -454,7 +544,7 @@ export class TinyDatagrid {
     if(!this._resizeObserver)this._resizeObserver=new globalThis.ResizeObserver(()=>this._scheduleVirtualRender());
     this._resizeObserver.observe(this.scroll);
   }
-  destroy({clear=true}={}){if(this._destroyed)return;this._destroyed=true;if(this._virtualFrame!=null)globalThis.cancelAnimationFrame?.(this._virtualFrame);this._virtualFrame=null;this._resizeObserver?.disconnect();this._resizeObserver=null;this._abort.abort();this.listeners.clear();if(clear){this.el.replaceChildren();this.el.classList.remove('tg-root');this.el.removeAttribute('tabindex')}}
+  destroy({clear=true}={}){if(this._destroyed)return;this._destroyed=true;if(this._virtualFrame!=null)globalThis.cancelAnimationFrame?.(this._virtualFrame);this._virtualFrame=null;this._resizeObserver?.disconnect();this._resizeObserver=null;for(const feature of this._features.values())feature.destroy?.();this._features.clear();this.emit('destroy',{});this._abort.abort();this._historyBefore=null;this._historyDepth=0;this._history.length=0;this._future.length=0;this.listeners.clear();if(clear){this.el.replaceChildren();this.el.classList.remove('tg-root');this.el.removeAttribute('tabindex')}}
   key(r,c){return `${r},${c}`}
   ensureSize(rows,cols){
     let changed=false;
@@ -463,40 +553,79 @@ export class TinyDatagrid {
     return changed;
   }
   _cloneSQLBinding(binding){return binding?{...binding,columns:[...binding.columns],keyColumns:[...binding.keyColumns],editableColumns:binding.editableColumns?[...binding.editableColumns]:null,seenCursors:new Set(binding.seenCursors||[]),sqlRowIds:new Map(binding.sqlRowIds),originalRows:new Map(binding.originalRows),inserted:new Set(binding.inserted),deleted:new Map(binding.deleted)}:null}
-  _snapshot(){return {cells:new Map(this.cells),rowCount:this.rowCount,colCount:this.colCount,rowHeights:[...this.rowHeights],colWidths:[...this.colWidths],hiddenColumns:new Set(this.hiddenColumns),hiddenRows:new Set(this.hiddenRows),table:this.table?{...this.table}:null,columnFilters:new Map([...this.columnFilters].map(([k,v])=>[k,new Set(v)])),sheetName:this.sheetName,freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),sqlBinding:this._cloneSQLBinding(this.sqlBinding)}}
-  _recordHistory(){this._history.push(this._snapshot());if(this._history.length>this.historyLimit)this._history.shift();this._future.length=0}
-  _restore(state){this.cells=new Map(state.cells);this.rowCount=state.rowCount;this.colCount=state.colCount;this.rowHeights=[...state.rowHeights];this.colWidths=[...state.colWidths];this.hiddenColumns=new Set(state.hiddenColumns||[]);this.hiddenRows=new Set(state.hiddenRows||[]);this.table=state.table?{...state.table}:null;this.columnFilters=new Map([...state.columnFilters||[]].map(([k,v])=>[k,new Set(v)]));this.sheetName=state.sheetName||'Sheet1';this.freezePanes={rows:0,columns:0,...state.freezePanes};this.conditionalFormats=structuredClone(state.conditionalFormats||[]);this.sqlBinding=this._cloneSQLBinding(state.sqlBinding);this.anchor={row:clamp(this.anchor.row,0,this.rowCount-1),col:clamp(this.anchor.col,0,this.colCount-1)};this.selection={r1:clamp(this.selection.r1,0,this.rowCount-1),c1:clamp(this.selection.c1,0,this.colCount-1),r2:clamp(this.selection.r2,0,this.rowCount-1),c2:clamp(this.selection.c2,0,this.colCount-1)};this.engine.clearCache();this.render();this.emit('change',{type:'history'})}
-  get canUndo(){return this._history.length>0}
-  get canRedo(){return this._future.length>0}
-  undo(){if(!this._history.length)return false;this._future.push(this._snapshot());this._restore(this._history.pop());return true}
-  redo(){if(!this._future.length)return false;this._history.push(this._snapshot());this._restore(this._future.pop());return true}
+  _snapshot(){return {validationRules:structuredClone(this.validationRules),variables:new Map(this.variables),cells:new Map(this.cells),rowCount:this.rowCount,colCount:this.colCount,rowHeights:[...this.rowHeights],colWidths:[...this.colWidths],hiddenColumns:new Set(this.hiddenColumns),hiddenRows:new Set(this.hiddenRows),table:this.table?{...this.table}:null,columnFilters:new Map([...this.columnFilters].map(([k,v])=>[k,new Set(v)])),sheetName:this.sheetName,freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),sqlBinding:this._cloneSQLBinding(this.sqlBinding)}}
+  _recordHistory(){if((this.historyLimit||this.feature('validation')||this.feature('conditionalFormatting'))&&!this._historyBefore)this._historyBefore=this._snapshot()}
+  _finishHistory(){
+    if(this._historyDepth||!this._historyBefore)return;
+    const before=this._historyBefore;this._historyBefore=null;
+    const patch=difference(before,this._snapshot());
+    if(!patch)return;
+    if(!this.historyLimit)return;
+    this._history.push(patch);if(this._history.length>this.historyLimit)this._history.shift();this._future.length=0;
+    this.emit('history',{undo:this._history.length,redo:0});
+  }
+  beginHistory(){if(!this._historyDepth)this._finishHistory();this._historyDepth++;this._recordHistory();return this}
+  endHistory(){if(this._historyDepth)this._historyDepth--;this._finishHistory();return this}
+  transaction(callback){
+    const outer=!this._historyDepth;
+    this.beginHistory();
+    try{return callback(this)}catch(error){
+      if(outer&&this._historyBefore&&(error.validation||this.feature('validation')||this.feature('conditionalFormatting'))){const before=this._historyBefore;this._historyBefore=null;this._restore(before);if(error.validation){this.emit('validationerror',error.validation);return false}throw error}
+      throw error;
+    }finally{this.endHistory();if(outer)this.emit('mutation',{})}
+  }
+  clearHistory(){this._historyBefore=null;this._history.length=0;this._future.length=0;this.emit('history',{undo:0,redo:0});return this}
+  get historyState(){if(!this._historyDepth)this._finishHistory();return {undo:this._history.length,redo:this._future.length}}
+  _restore(state){this.validationRules=structuredClone(state.validationRules||[]);this.variables=new Map(state.variables);this.cells=new Map(state.cells);this.rowCount=state.rowCount;this.colCount=state.colCount;this.rowHeights=[...state.rowHeights];this.colWidths=[...state.colWidths];this.hiddenColumns=new Set(state.hiddenColumns||[]);this.hiddenRows=new Set(state.hiddenRows||[]);this.table=state.table?{...state.table}:null;this.columnFilters=new Map([...state.columnFilters||[]].map(([k,v])=>[k,new Set(v)]));this.sheetName=state.sheetName||'Sheet1';this.freezePanes={rows:0,columns:0,...state.freezePanes};this.conditionalFormats=structuredClone(state.conditionalFormats||[]);this.sqlBinding=this._cloneSQLBinding(state.sqlBinding);this.anchor={row:clamp(this.anchor.row,0,this.rowCount-1),col:clamp(this.anchor.col,0,this.colCount-1)};this.selection={r1:clamp(this.selection.r1,0,this.rowCount-1),c1:clamp(this.selection.c1,0,this.colCount-1),r2:clamp(this.selection.r2,0,this.rowCount-1),c2:clamp(this.selection.c2,0,this.colCount-1)};this.engine.clearCache();this.render();this.emit('change',{type:'history'})}
+  get canUndo(){return this.historyState.undo>0}
+  get canRedo(){return this.historyState.redo>0}
+  undo(){
+    if(this._historyDepth||this.readOnly)return false;this._finishHistory();
+    if(!this._history.length)return false;
+    const patch=this._history.pop();this._future.push(patch);this._restore(applyDifference(this._snapshot(),patch,false));
+    this.emit('history',this.historyState);return true;
+  }
+  redo(){
+    if(this._historyDepth||this.readOnly)return false;this._finishHistory();
+    if(!this._future.length)return false;
+    const patch=this._future.pop();this._history.push(patch);this._restore(applyDifference(this._snapshot(),patch,true));
+    this.emit('history',this.historyState);return true;
+  }
+  recalculate(){this.engine.clearCache();this.render();this.emit('change',{type:'recalculate'});return this}
+  setSheetName(name){this.sheetName=String(name);this.emit('change',{type:'rename'});return this}
+  clearSelection(){
+    if(this.readOnly)return false;const s=this.selection;
+    for(let r=Math.min(s.r1,s.r2);r<=Math.max(s.r1,s.r2);r++)for(let c=Math.min(s.c1,s.c2);c<=Math.max(s.c1,s.c2);c++)if(this.isCellReadOnly(r,c))return false;
+    for(let r=Math.min(s.r1,s.r2);r<=Math.max(s.r1,s.r2);r++)for(let c=Math.min(s.c1,s.c2);c<=Math.max(s.c1,s.c2);c++){const key=this.key(r,c);if(this.cells.has(key))this.cells.set(key,{...this.getCell(r,c),raw:''})}
+    this.render();this.emit('change',{type:'clear'});return true;
+  }
   isCellReadOnly(row,col){if(this.readOnly)return true;if(!this.sqlBinding)return false;if(row===this.sqlBinding.headerRow||!this.sqlBinding.keyColumns.length)return true;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];if(!column)return true;return Boolean(column.readOnly||column.primaryKey||this.sqlBinding.keyColumns.includes(column.name)||(this.sqlBinding.editableColumns&&!this.sqlBinding.editableColumns.includes(column.name)))}
   _coerceSQLValue(col,value){if(!this.sqlBinding||typeof value!=='string'||value.startsWith('='))return value;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];return coerceDataValue(value,{type:column?.type||'unknown'})}
-  setCell(row,col,value,meta={}){if(this.sqlBinding&&this.isCellReadOnly(row,col))return false;value=this._coerceSQLValue(col,value);this._recordHistory();const grew=this.ensureSize(row+1,col+1);const k=this.key(row,col);const old=this.cells.get(k)||{};this.cells.set(k,{...old,...meta,raw:value});this.engine.clearCache();this._updateFilteredRows();this.emit('change',{row,col,value});if(grew||this.table)this.render();else this.renderCells();return true}
+  setCell(row,col,value,meta={}){if(this.sqlBinding&&this.isCellReadOnly(row,col))return false;value=this._coerceSQLValue(col,value);this._recordHistory();const grew=this.ensureSize(row+1,col+1);const k=this.key(row,col);const old=this.cells.get(k)||{};this.cells.set(k,{...old,...meta,raw:value});this._updateFilteredRows();this.emit('change',{row,col,value});if(grew||this.table)this.render();else this.renderCells();return true}
   getCell(row,col){return this.cells.get(this.key(row,col))||{raw:''}}
-  getRawValue(row,col){const cell=this.getCell(row,col);return Object.hasOwn(cell,'raw')?cell.raw:''}
+  getRawValue(row,col){this.engine?.dependencies.read(this.key(row,col));const cell=this.getCell(row,col);return Object.hasOwn(cell,'raw')?cell.raw:''}
   getComputedValue(row,col,visiting=new Set()){
-    const k=this.key(row,col); if(this.engine.cache.has(k)) return this.engine.cache.get(k); if(visiting.has(k)) return '#CYCLE!';
-    visiting.add(k); const raw=this.getRawValue(row,col); let out=raw;
+    const k=this.key(row,col); this.engine.dependencies.read(k);if(this.engine.cache.has(k)) return this.engine.cache.get(k); if(visiting.has(k)) return '#CYCLE!';
+    this.engine.dependencies.begin(k);visiting.add(k);try{const raw=this.getRawValue(row,col); let out=raw;
     if(typeof raw==='string'&&raw.startsWith('=')) out=this.engine.evaluateFormula(raw,visiting);
-    else if(typeof raw==='string'&&raw!==''&&!Number.isNaN(Number(raw))){const type=String(this.sqlBinding?.columns[col-this.sqlBinding.startCol]?.type||'').toLowerCase(),numeric=Number(raw),textType=/^(char|character|varchar|nvarchar|nchar|text|string|uuid|uniqueidentifier|citext|enum|set|xml|clob|ntext)\b/.test(type);out=textType||/^[-+]?0\d+$/.test(raw.trim())||/^(decimal|numeric|money|smallmoney|numeric\(.*\))/.test(type)||(/^(bigint|int8|integer64|bigserial)$/.test(type)&&!Number.isSafeInteger(numeric))?raw:numeric}
-    visiting.delete(k); this.engine.cache.set(k,out); return out;
+    else if(typeof raw==='string'&&this.getCell(row,col).valueType!=='text'&&raw!==''&&!Number.isNaN(Number(raw))){const type=String(this.sqlBinding?.columns[col-this.sqlBinding.startCol]?.type||'').toLowerCase(),numeric=Number(raw),textType=/^(char|character|varchar|nvarchar|nchar|text|string|uuid|uniqueidentifier|citext|enum|set|xml|clob|ntext)\b/.test(type);out=textType||/^[-+]?0\d+$/.test(raw.trim())||/^(decimal|numeric|money|smallmoney|numeric\(.*\))/.test(type)||(/^(bigint|int8|integer64|bigserial)$/.test(type)&&!Number.isSafeInteger(numeric))?raw:numeric}
+    this.engine.cache.set(k,out);return out;}finally{visiting.delete(k);this.engine.dependencies.end()}
   }
-  setVariable(name,value){this.variables.set(String(name).replace(/^@/,''),value);this.engine.clearCache();this.renderCells();this.emit('variable',{name,value});}
-  getVariable(name){return this.variables.get(String(name).replace(/^@/,''));}
+  setVariable(name,value){name=String(name).replace(/^@/,'');this.variables.set(name,value);this.engine.dependencies.invalidate(`@${name}`);this.render();this.emit('variable',{name,value});}
+  getVariable(name){name=String(name).replace(/^@/,'');this.engine.dependencies.read(`@${name}`);return this.variables.get(name);}
   setRowHeight(row,h){this.rowHeights[row]=clamp(h,18,400);this.layout();this.emit('resize',{type:'row',index:row,size:this.rowHeights[row]});}
   setColumnWidth(col,w){this.colWidths[col]=clamp(w,36,800);this.layout();this.emit('resize',{type:'column',index:col,size:this.colWidths[col]});}
   hideRow(row){if(row<0||row>=this.rowCount||this.hiddenRows.has(row)||this.hiddenRows.size>=this.rowCount-1)return false;this._recordHistory();this.hiddenRows.add(row);let visible=row+1;while(visible<this.rowCount&&this.hiddenRows.has(visible))visible++;if(visible>=this.rowCount){visible=row-1;while(visible>=0&&this.hiddenRows.has(visible))visible--}visible=Math.max(0,visible);this.anchor={row:visible,col:0};this.selection={r1:visible,c1:0,r2:visible,c2:this.colCount-1};this.layout();this.emit('rowhide',{index:row});this.emit('select',{...this.selection});return true}
   showAllRows(){if(!this.hiddenRows.size)return false;const rows=[...this.hiddenRows].sort((a,b)=>a-b);this._recordHistory();this.hiddenRows.clear();this.layout();this.emit('rowshow',{rows});return true}
   insertRow(index){if(this.sqlBinding)return this.insertRecord({});index=clamp(index,0,this.rowCount);this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);shifted.set(this.key(row>=index?row+1:row,col),value)}this.cells=shifted;this.rowHeights.splice(index,0,this.options.rowHeight);this.hiddenRows=new Set([...this.hiddenRows].map(row=>row>=index?row+1:row));this.rowCount++;this.engine.clearCache();this.anchor={row:index,col:0};this.selection={r1:index,c1:0,r2:index,c2:this.colCount-1};this.render();this.emit('change',{type:'rowinsert',index});return this}
   deleteRow(index,{history=true,trackSQL=true}={}){if(trackSQL&&this.sqlBinding)return this.deleteRecord(index);if(index<0||index>=this.rowCount||this.rowCount<=1)return false;if(history)this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);if(row!==index)shifted.set(this.key(row>index?row-1:row,col),value)}this.cells=shifted;this.rowHeights.splice(index,1);this.hiddenRows=new Set([...this.hiddenRows].filter(row=>row!==index).map(row=>row>index?row-1:row));if(this.sqlBinding)this.sqlBinding.sqlRowIds=new Map([...this.sqlBinding.sqlRowIds].filter(([row])=>row!==index).map(([row,id])=>[row>index?row-1:row,id]));this.rowCount--;const selected=Math.min(index,this.rowCount-1);this.anchor={row:selected,col:0};this.selection={r1:selected,c1:0,r2:selected,c2:this.colCount-1};this.engine.clearCache();this.render();this.emit('change',{type:'rowdelete',index});return true}
-  clearRow(index){if(this.sqlBinding&&(this.readOnly||index===this.sqlBinding.headerRow))return false;this._recordHistory();for(let col=0;col<this.colCount;col++){if(this.sqlBinding&&this.isCellReadOnly(index,col))continue;const key=this.key(index,col),cell=this.cells.get(key);if(cell)this.cells.set(key,{...cell,raw:''})}this.engine.clearCache();this.renderCells();this.emit('change',{type:'rowclear',index});return true}
+  clearRow(index){if(this.sqlBinding&&(this.readOnly||index===this.sqlBinding.headerRow))return false;this._recordHistory();for(let col=0;col<this.colCount;col++){if(this.sqlBinding&&this.isCellReadOnly(index,col))continue;const key=this.key(index,col),cell=this.cells.get(key);if(cell)this.cells.set(key,{...cell,raw:''})}this.renderCells();this.emit('change',{type:'rowclear',index});return true}
   autoFitRow(index){let lines=1;for(let col=0;col<this.colCount;col++){if(this.hiddenColumns.has(col))continue;lines=Math.max(lines,String(this.formatValue(this.getComputedValue(index,col),this.getCell(index,col).numberFormat)??'').split('\n').length)}this._recordHistory();this.setRowHeight(index,clamp(lines*18+10,28,400));return this.rowHeights[index]}
   hideColumn(col){if(col<0||col>=this.colCount||this.hiddenColumns.has(col)||this.hiddenColumns.size>=this.colCount-1)return false;this._recordHistory();this.hiddenColumns.add(col);let visible=col+1;while(visible<this.colCount&&this.hiddenColumns.has(visible))visible++;if(visible>=this.colCount){visible=col-1;while(visible>=0&&this.hiddenColumns.has(visible))visible--}visible=Math.max(0,visible);this.anchor={row:0,col:visible};this.selection={r1:0,c1:visible,r2:this.rowCount-1,c2:visible};this.layout();this.emit('columnhide',{index:col});this.emit('select',{...this.selection});return true}
   showAllColumns(){if(!this.hiddenColumns.size)return false;const columns=[...this.hiddenColumns].sort((a,b)=>a-b);this._recordHistory();this.hiddenColumns.clear();this.layout();this.emit('columnshow',{columns});return true}
   insertColumn(index){if(this.sqlBinding)return false;index=clamp(index,0,this.colCount);this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);shifted.set(this.key(row,col>=index?col+1:col),value)}this.cells=shifted;this.colWidths.splice(index,0,this.options.columnWidth);this.hiddenColumns=new Set([...this.hiddenColumns].map(col=>col>=index?col+1:col));this.colCount++;this.engine.clearCache();this.anchor={row:0,col:index};this.selection={r1:0,c1:index,r2:this.rowCount-1,c2:index};this.render();this.emit('change',{type:'columninsert',index});return this}
   deleteColumn(index){if(this.sqlBinding||index<0||index>=this.colCount||this.colCount<=1)return false;this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);if(col!==index)shifted.set(this.key(row,col>index?col-1:col),value)}this.cells=shifted;this.colWidths.splice(index,1);this.hiddenColumns=new Set([...this.hiddenColumns].filter(col=>col!==index).map(col=>col>index?col-1:col));this.colCount--;const selected=Math.min(index,this.colCount-1);this.anchor={row:0,col:selected};this.selection={r1:0,c1:selected,r2:this.rowCount-1,c2:selected};this.engine.clearCache();this.render();this.emit('change',{type:'columndelete',index});return true}
-  clearColumn(index){if(this.sqlBinding&&(this.readOnly||this.isCellReadOnly(this.sqlBinding.headerRow+1,index)))return false;this._recordHistory();for(let row=0;row<this.rowCount;row++){if(this.sqlBinding&&(row===this.sqlBinding.headerRow||this.isCellReadOnly(row,index)))continue;const key=this.key(row,index),cell=this.cells.get(key);if(cell)this.cells.set(key,{...cell,raw:''})}this.engine.clearCache();this.renderCells();this.emit('change',{type:'columnclear',index});return true}
+  clearColumn(index){if(this.sqlBinding&&(this.readOnly||this.isCellReadOnly(this.sqlBinding.headerRow+1,index)))return false;this._recordHistory();for(let row=0;row<this.rowCount;row++){if(this.sqlBinding&&(row===this.sqlBinding.headerRow||this.isCellReadOnly(row,index)))continue;const key=this.key(row,index),cell=this.cells.get(key);if(cell)this.cells.set(key,{...cell,raw:''})}this.renderCells();this.emit('change',{type:'columnclear',index});return true}
   autoFitColumn(index){const ctx=document.createElement('canvas').getContext('2d');ctx.font=getComputedStyle(this.el).font;let width=colToName(index).length*8+20;for(let row=0;row<this.rowCount;row++){const text=this.formatValue(this.getComputedValue(row,index),this.getCell(row,index).numberFormat);width=Math.max(width,ctx.measureText(String(text??'')).width+18)}this._recordHistory();this.setColumnWidth(index,clamp(Math.ceil(width),48,800));return this.colWidths[index]}
   load(data,startRow=0,startCol=0){
     if(Array.isArray(data)){
@@ -531,7 +660,7 @@ export class TinyDatagrid {
     const binding={tableName,columns,keyColumns,editableColumns,startCol,headerRow,firstDataRow:headerRow+1,lastDataRow:headerRow+records.length,loadedRows:records.length,fetchedRows:records.length,totalRows:Number.isFinite(result.rowCount)?result.rowCount:records.length,hasMore:resultHasMore(result),nextCursor:result.nextCursor??null,seenCursors:new Set(result.nextCursor==null?[]:[cursorKey(result.nextCursor)]),emptyPageCount:0,queryId:result.queryId??null,metadata:result.metadata??null,sqlRowIds:new Map(),originalRows:new Map(),inserted:new Set(),deleted:new Map(),nextInsertId:1};
     records.forEach((record,index)=>{if(keyColumns.some(name=>record[name]==null))throw new TypeError(`SQL key is missing a value (${keyColumns.join(', ')})`);const id=keyColumns.length?`pk:${JSON.stringify(keyColumns.map(name=>toPortableValue(record[name])))}`:`row:${index}`;if(binding.originalRows.has(id))throw new TypeError(`Duplicate SQL key in result: ${id}`);binding.sqlRowIds.set(binding.firstDataRow+index,id);binding.originalRows.set(id,structuredClone(record))});
     this._importMatrix(matrix,{replace:true,startRow:0,startCol});this.table={r1:headerRow,c1:startCol,r2:Math.max(headerRow,records.length),c2:startCol+columns.length-1,headerRow,style:'banded'};this.columnFilters.clear();this.filteredRows.clear();this.sqlBinding=binding;
-    this.setReadOnly(Boolean(readOnly));this._history.length=0;this._future.length=0;this.engine.clearCache();this.render();this.emit('sqlresult',{tableName,rows:records.length,totalRows:binding.totalRows,columns:columns.map(column=>({...column})),readOnly:Boolean(readOnly)});return {rows:records.length,totalRows:binding.totalRows,columns};
+    this.setReadOnly(Boolean(readOnly));this.clearHistory();this.engine.clearCache();this.render();this.emit('sqlresult',{tableName,rows:records.length,totalRows:binding.totalRows,columns:columns.map(column=>({...column})),readOnly:Boolean(readOnly)});return {rows:records.length,totalRows:binding.totalRows,columns};
   }
   appendResultPage(result){
     if(!this.sqlBinding)throw new Error('Load the first SQL result page before appending another page');
@@ -566,7 +695,7 @@ export class TinyDatagrid {
     if(!this.sqlBinding)return false;const binding=this.sqlBinding,pending=this.getDataChanges(),counts={updates:pending.updates.length,inserts:pending.inserts.length,deletes:pending.deletes.length},getResult=(collection,id)=>collection instanceof Map?collection.get(id):collection[id],returnedValues=id=>{const generated=getResult(keyMap,id),record=getResult(recordsByClientId,id)||{};return {...record,...(generated==null?{}:typeof generated==='object'?generated:{[binding.keyColumns[0]]:generated})};};
     for(const [row,id] of binding.sqlRowIds){if(!binding.inserted.has(id))continue;const serverValues=returnedValues(id),current=this._sqlRecord(row);for(const name of binding.keyColumns)if(serverValues[name]==null&&current[name]==null)throw new Error(`Save succeeded but returned no generated SQL key for inserted row ${id}`)}
     for(const [row,id] of [...binding.sqlRowIds]){if(row<binding.firstDataRow||row>binding.lastDataRow)continue;const values=returnedValues(id);for(const [name,value] of Object.entries(values)){const index=binding.columns.findIndex(column=>column.name===name);if(index>=0)this.cells.set(this.key(row,binding.startCol+index),{...this.getCell(row,binding.startCol+index),raw:value})}if(Object.keys(values).length)this.engine.clearCache();let currentId=id;if(binding.inserted.has(id)){currentId=this._sqlKey(this._sqlRecord(row));binding.sqlRowIds.set(row,currentId);binding.inserted.delete(id);binding.originalRows.delete(id)}binding.originalRows.set(currentId,structuredClone(this._sqlRecord(row)));binding.inserted.delete(currentId)}
-    for(const id of binding.deleted.keys())binding.originalRows.delete(id);binding.deleted.clear();this.engine.clearCache();this.renderCells();this._history.length=0;this._future.length=0;this.emit('sqlsaved',{changes:counts});return true;
+    for(const id of binding.deleted.keys())binding.originalRows.delete(id);binding.deleted.clear();this.engine.clearCache();this.renderCells();this.clearHistory();this.emit('sqlsaved',{changes:counts});return true;
   }
   toArray(range={r1:0,c1:0,r2:this.rowCount-1,c2:this.colCount-1},computed=false){
     const rr={r1:Math.min(range.r1,range.r2),c1:Math.min(range.c1,range.c2),r2:Math.max(range.r1,range.r2),c2:Math.max(range.c1,range.c2)};
@@ -578,20 +707,25 @@ export class TinyDatagrid {
   exportHTML({range,computed=true}={}){const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');const rows=this.toArray(range||this.getUsedRange(),computed);return `<!doctype html><meta charset="utf-8"><table><tbody>${rows.map(row=>`<tr>${row.map(value=>`<td>${escape(value)}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
   exportMarkdown({range,computed=true}={}){const rows=this.toArray(range||this.getUsedRange(),computed).map(row=>row.map(value=>String(value??'').replaceAll('|','\\|').replace(/\r?\n/g,'<br>')));if(!rows.length)return '';return [rows[0],rows[0].map(()=> '---'),...rows.slice(1)].map(row=>`| ${row.join(' | ')} |`).join('\n')}
   importCSV(text,options={}){return this.importDelimited(text,{...options,delimiter:options.delimiter||detectDelimiter(text)})}
-  _importMatrix(data,{startRow=0,startCol=0,replace=false,preserveDataSource=false,cellFormats=null}={}){
+  _importMatrix(data,{startRow=0,startCol=0,replace=false,preserveDataSource=false,cellFormats=null,textCells=null}={}){
     if(!Array.isArray(data)||!data.length)return 0;const width=Math.max(0,...data.map(row=>Array.isArray(row)?row.length:0));this._recordHistory();
-    if(replace){this.cells=new Map();this.hiddenRows.clear();this.hiddenColumns.clear();this.table=null;this.columnFilters.clear();this.sqlBinding=null;this.rowCount=Math.max(1,this.options.rows,startRow+data.length);this.colCount=Math.max(1,this.options.columns,startCol+width);this.rowHeights=Array(this.rowCount).fill(this.options.rowHeight);this.colWidths=Array(this.colCount).fill(this.options.columnWidth)}else if(!preserveDataSource)this.sqlBinding=null;
+    if(replace){this.validationRules=[];this.conditionalFormats=[];this.freezePanes={rows:0,columns:0};this.cells=new Map();this.hiddenRows.clear();this.hiddenColumns.clear();this.table=null;this.columnFilters.clear();this.sqlBinding=null;this.rowCount=Math.max(1,this.options.rows,startRow+data.length);this.colCount=Math.max(1,this.options.columns,startCol+width);this.rowHeights=Array(this.rowCount).fill(this.options.rowHeight);this.colWidths=Array(this.colCount).fill(this.options.columnWidth)}else if(!preserveDataSource)this.sqlBinding=null;
     else for(let r=startRow;r<startRow+data.length;r++)for(let c=startCol;c<startCol+width;c++)this.cells.delete(this.key(r,c));
-    data.forEach((row,r)=>Array.isArray(row)&&row.forEach((value,c)=>{const format=cellFormats?.get(`${r},${c}`);this.cells.set(this.key(startRow+r,startCol+c),{...(format?{numberFormat:format}:{}),raw:value})}));
+    data.forEach((row,r)=>Array.isArray(row)&&row.forEach((value,c)=>{const format=cellFormats?.get(`${r},${c}`);this.cells.set(this.key(startRow+r,startCol+c),{...(format?{numberFormat:format}:{}),...(textCells?.has(`${r},${c}`)?{valueType:'text'}:{}),raw:value})}));
     this.ensureSize(startRow+data.length,startCol+width);this.engine.clearCache();this.render();this.emit('change',{type:'import',rows:data.length,replace});return data.length;
   }
-  importDelimited(text,{delimiter=detectDelimiter(text),inferTypes=true,locale,headerRow=0,...options}={}){let data=parseCSV(text,delimiter),cellFormats;if(inferTypes){const inferred=inferDelimitedRows(data,{locale,headerRow});data=inferred.rows;cellFormats=inferred.formats}return this._importMatrix(data,{...options,cellFormats})}
+  importDelimited(text,{delimiter=detectDelimiter(text),inferTypes=true,locale,dateParsing='iso',headerRow=0,...options}={}){
+    let data=parseCSV(text,delimiter),cellFormats,textCells;
+    if(inferTypes){const inferred=inferDelimitedRows(data,{locale,dateParsing,headerRow});data=inferred.rows;cellFormats=inferred.formats;textCells=inferred.textCells}
+    else{textCells=new Set();data.forEach((row,r)=>row.forEach((_,c)=>textCells.add(`${r},${c}`)))}
+    return this._importMatrix(data,{...options,cellFormats,textCells});
+  }
   importHTML(markup,options={}){return this._importMatrix(importMarkupTable(markup),options)}
   importMarkdown(markdown,options={}){return this._importMatrix(parseMarkdownTable(markdown),options)}
-  importNDJSON(text,{startRow=0,startCol=0,replace=false,inferTypes=false,locale}={}){
+  importNDJSON(text,{startRow=0,startCol=0,replace=false,inferTypes=false,locale,dateParsing='iso'}={}){
     const records=String(text??'').split(/\r?\n/).filter(line=>line.trim()).map(line=>JSON.parse(line));if(!records.length)return 0;
     if(records.every(Array.isArray))return this._importMatrix(records,{startRow,startCol,replace});
-    if(records.every(record=>record&&typeof record==='object'&&!Array.isArray(record))){const headers=[...new Set(records.flatMap(Object.keys))];const data=[headers,...records.map(record=>headers.map(header=>Object.hasOwn(record,header)?record[header]:''))];if(inferTypes){const inferred=inferDelimitedRows(data,{locale});return this._importMatrix(inferred.rows,{startRow,startCol,replace,cellFormats:inferred.formats})}return this._importMatrix(data,{startRow,startCol,replace})}
+    if(records.every(record=>record&&typeof record==='object'&&!Array.isArray(record))){const headers=[...new Set(records.flatMap(Object.keys))];const data=[headers,...records.map(record=>headers.map(header=>Object.hasOwn(record,header)?record[header]:''))];if(inferTypes){const inferred=inferDelimitedRows(data,{locale,dateParsing});return this._importMatrix(inferred.rows,{startRow,startCol,replace,cellFormats:inferred.formats,textCells:inferred.textCells})}return this._importMatrix(data,{startRow,startCol,replace})}
     return this._importMatrix(records.map(record=>[record]),{startRow,startCol,replace});
   }
   importSpreadsheetXML(xml,options={}){
@@ -621,10 +755,11 @@ export class TinyDatagrid {
     for(const [key,meta] of this.cells){const [row,col]=key.split(',').map(Number),raw=meta.raw;const cell={row,col};
       if(typeof raw==='string'&&raw.startsWith('=')){if(formulas)cell.formula=raw;if(values)cell.value=toPortableValue(this.getComputedValue(row,col))}else if(values&&raw!==''&&raw!=null)cell.value=toPortableValue(raw);
       if(formatting){if(meta.numberFormat!=null)cell.numberFormat=meta.numberFormat;if(meta.style)cell.style={...meta.style};if(meta.className)cell.className=meta.className}
+      if(values&&meta.valueType==='text')cell.valueType='text';
       if(Object.keys(cell).length>2)cells.push(cell);
     }
     const dims=dimensions?{rows:this.rowCount,columns:this.colCount,rowHeights:[...this.rowHeights],columnWidths:[...this.colWidths],hiddenRows:[...this.hiddenRows].sort((a,b)=>a-b),hiddenColumns:[...this.hiddenColumns].sort((a,b)=>a-b)}:undefined;
-    const sheet={id:'sheet1',name:this.sheetName,cells,variables:toPortableValue(Object.fromEntries(this.variables)),...(dims?{dimensions:dims}:{}),freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),table:this.table?{...this.table}:null,filters:[...this.columnFilters].map(([column,values])=>({column,values:[...values]}))};
+    const sheet={id:'sheet1',name:this.sheetName,cells,variables:toPortableValue(Object.fromEntries(this.variables)),...(dims?{dimensions:dims}:{}),freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),validationRules:structuredClone(this.validationRules),table:this.table?{...this.table}:null,filters:[...this.columnFilters].map(([column,values])=>({column,values:[...values]}))};
     const workbook={format:'tinyDatagrid-workbook',version:2,activeSheetId:'sheet1',sheets:[sheet],cells,variables:sheet.variables};
     if(dims)workbook.dimensions=dims;
     return workbook;
@@ -643,7 +778,7 @@ export class TinyDatagrid {
     const payload=activeSheet||workbook;if(!Array.isArray(payload.cells))throw new TypeError('Workbook sheet must contain a cells array');
     this._recordHistory();if(replace){this.cells=new Map();this.sqlBinding=null}
     const dims=payload.dimensions||workbook.dimensions;
-    if(replace){this.sheetName=payload.name||'Sheet1';this.freezePanes={rows:0,columns:0,...payload.freezePanes};this.conditionalFormats=structuredClone(payload.conditionalFormats||[]);this.table=payload.table?{...payload.table}:null;this.columnFilters=new Map((payload.filters||[]).map(item=>[Number(item.column),new Set((item.values||[]).map(String))]))}
+    if(replace){this.sheetName=payload.name||'Sheet1';this.freezePanes={rows:0,columns:0,...payload.freezePanes};this.conditionalFormats=structuredClone(payload.conditionalFormats||[]);this.validationRules=structuredClone(payload.validationRules||[]);this.feature('validation')?.checkRules(this.validationRules);this.feature('conditionalFormatting')?.checkRules(this.conditionalFormats);this.table=payload.table?{...payload.table}:null;this.columnFilters=new Map((payload.filters||[]).map(item=>[Number(item.column),new Set((item.values||[]).map(String))]))}
     if(replace&&dimensions&&dims&&startRow===0&&startCol===0){
       this.rowCount=Math.max(1,Math.trunc(Number(dims.rows)||1));this.colCount=Math.max(1,Math.trunc(Number(dims.columns)||1));
       this.rowHeights=Array.from({length:this.rowCount},(_,i)=>clamp(Number(dims.rowHeights?.[i])||this.options.rowHeight,18,400));
@@ -654,6 +789,7 @@ export class TinyDatagrid {
     if(replace&&(payload.variables||workbook.variables)&&typeof (payload.variables||workbook.variables)==='object')this.variables=new Map(Object.entries(fromPortableValue(payload.variables||workbook.variables)));
     for(const source of payload.cells){if(!source||!Number.isInteger(source.row)||!Number.isInteger(source.col)||source.row<0||source.col<0)continue;const row=startRow+source.row,col=startCol+source.col,meta={};let hasValue=false,value;
       if(formulas&&typeof source.formula==='string'){value=source.formula;hasValue=true;if(startRow||startCol)value=this.shiftFormula(value,startRow,startCol)}else if(values&&Object.hasOwn(source,'value')){value=fromPortableValue(source.value);hasValue=true}
+      if(hasValue)meta.valueType=source.valueType==='text'?'text':undefined;
       if(formatting){if(Object.hasOwn(source,'numberFormat'))meta.numberFormat=source.numberFormat;if(source.style&&typeof source.style==='object')meta.style={...source.style};if(typeof source.className==='string')meta.className=source.className}
       if(hasValue||Object.keys(meta).length)this.cells.set(this.key(row,col),{...(this.cells.get(this.key(row,col))||{}),...meta,...(hasValue?{raw:value}:{})});
       this.ensureSize(row+1,col+1);
@@ -701,11 +837,11 @@ export class TinyDatagrid {
     const out=[];for(let r=startRow;r<=endRow;r++){if(visibleOnly&&(this.hiddenRows.has(r)||this.filteredRows.has(r)))continue;const rec={};let nonEmpty=false;headers.forEach((h,i)=>{const v=this.getComputedValue(r,startCol+i);rec[h]=v;if(v!==''&&v!=null)nonEmpty=true});if(nonEmpty||this.sqlBinding?.sqlRowIds.has(r))out.push(rec)}return out;
   }
   pivot(config){const source={visibleOnly:Boolean(this.table),...(config.source||{})};return PivotEngine.pivot(this.toRecords(source),config)}
-  setFreezePanes({rows=this.freezePanes.rows,columns=this.freezePanes.columns}={}){this.freezePanes={rows:clamp(Math.trunc(rows)||0,0,this.rowCount-1),columns:clamp(Math.trunc(columns)||0,0,this.colCount-1)};this.emit('freezepanes',{...this.freezePanes});return this}
-  setConditionalFormats(rules=[]){if(!Array.isArray(rules))throw new TypeError('Conditional formatting rules must be an array');this.conditionalFormats=structuredClone(rules);this.emit('conditionalformats',{rules:this.conditionalFormats});return this}
+  setFreezePanes({rows=this.freezePanes.rows,columns=this.freezePanes.columns}={}){this.freezePanes={rows:clamp(Math.trunc(rows)||0,0,this.rowCount-1),columns:clamp(Math.trunc(columns)||0,0,this.colCount-1)};this.render();this.emit('freezepanes',{...this.freezePanes});return this}
+  setConditionalFormats(rules=[]){if(!Array.isArray(rules))throw new TypeError('Conditional formatting rules must be an array');this.feature('conditionalFormatting')?.checkRules(rules);this.conditionalFormats=structuredClone(rules);this.renderCells();this.emit('conditionalformats',{rules:this.conditionalFormats});return this}
   shiftFormula(formula,dr,dc){
     const strings=[];const masked=formula.replace(/"(?:""|[^"])*"/g,s=>{strings.push(s);return `\u0000${strings.length-1}\u0000`});
-    return masked.replace(/(^|[^A-Z0-9_@])(\$?)([A-Z]+)(\$?)(\d+)(?![A-Z0-9_])/gi,(m,prefix,ac,col,ar,row)=>{const nc=ac?nameToCol(col):Math.max(0,nameToCol(col)+dc);const nr=ar?Number(row)-1:Math.max(0,Number(row)-1+dr);return `${prefix}${ac}${colToName(nc)}${ar}${nr+1}`}).replace(/\u0000(\d+)\u0000/g,(_,i)=>strings[Number(i)]);
+    return masked.replace(/(^|[^A-Z0-9_@.])(\$?)([A-Z]+)(\$?)(\d+)(?![A-Z0-9_.]|\s*\()/gi,(m,prefix,ac,col,ar,row)=>{const nc=ac?nameToCol(col):Math.max(0,nameToCol(col)+dc);const nr=ar?Number(row)-1:Math.max(0,Number(row)-1+dr);return `${prefix}${ac}${colToName(nc)}${ar}${nr+1}`}).replace(/\u0000(\d+)\u0000/g,(_,i)=>strings[Number(i)]);
   }
   _fillBounds(source,target){
     const src={r1:Math.min(source.r1,source.r2),c1:Math.min(source.c1,source.c2),r2:Math.max(source.r1,source.r2),c2:Math.max(source.c1,source.c2)};
@@ -749,14 +885,14 @@ export class TinyDatagrid {
     const positive=axis==='vertical'?dst.r2>src.r2:dst.c2>src.c2;
     const count=Math.min(2,axis==='vertical'?(positive?dst.r2-src.r2:src.r1-dst.r1):(positive?dst.c2-src.c2:src.c1-dst.c1));
     const offsets=Array.from({length:count},(_,index)=>positive?seedLength+index:-1-index);
-    const menu=this.autofillMenu,title=document.createElement('div');title.className='tg-menu-title';title.textContent='Mehrere Fortsetzungen sind möglich';menu.replaceChildren(title);
-    const choices=[['series',`Serie fortsetzen: ${this._autofillPreview(series,'series',offsets)}`],['repeat',`Muster wiederholen: ${this._autofillPreview(series,'repeat',offsets)}`]];
+    const menu=this.autofillMenu,title=document.createElement('div');title.className='tg-menu-title';title.textContent=this.t('multipleFills');menu.replaceChildren(title);
+    const choices=[['series',`${this.t('series')}: ${this._autofillPreview(series,'series',offsets)}`],['repeat',`${this.t('repeat')}: ${this._autofillPreview(series,'repeat',offsets)}`]];
     for(const [mode,label] of choices){const button=document.createElement('button');button.type='button';button.className='tg-autofill-option';button.dataset.autofillMode=mode;button.textContent=label;menu.append(button)}
     menu.hidden=false;
     const root=this.el.getBoundingClientRect(),handle=this.fillHandle.getBoundingClientRect();let left=handle.left-root.left,top=handle.bottom-root.top+7;
     if(left+menu.offsetWidth>root.width)left=handle.right-root.left-menu.offsetWidth;
     if(top+menu.offsetHeight>root.height)top=handle.top-root.top-menu.offsetHeight-7;
-    menu.style.left=clamp(left,0,Math.max(0,root.width-menu.offsetWidth))+'px';menu.style.top=clamp(top,0,Math.max(0,root.height-menu.offsetHeight))+'px';menu.querySelector('button')?.focus();
+    menu.style.left=clamp(left,0,Math.max(0,root.width-menu.offsetWidth))+'px';menu.style.top=clamp(top,0,Math.max(0,root.height-menu.offsetHeight))+'px';menu.querySelector('button')?.focus({preventScroll:true});
   }
   _closeAutofillMenu(restore=false){
     if(!this.autofillMenu||this.autofillMenu.hidden)return false;
@@ -773,7 +909,7 @@ export class TinyDatagrid {
   _chooseAutofill(mode){
     const pending=this._autofillPending;if(!pending)return false;
     this._closeAutofillMenu();const filled=this.fill(pending.source,pending.target,{mode});
-    this.selection={...(filled?pending.target:pending.source)};this.anchor={row:this.selection.r1,col:this.selection.c1};this.updateSelectionOverlay();this.el.focus();return filled;
+    this.selection={...(filled?pending.target:pending.source)};this.anchor={row:this.selection.r1,col:this.selection.c1};this.updateSelectionOverlay();this.el.focus({preventScroll:true});return filled;
   }
   fillDownToContiguousData(source=this.selection){
     if(this.readOnly)return false;
@@ -805,7 +941,7 @@ export class TinyDatagrid {
       if(typeof raw==='string'&&raw.startsWith('='))raw=this.shiftFormula(raw,r-sr,c-sc);
       this.cells.set(this.key(r,c),{...this.getCell(sr,sc),raw});
     }
-    this.engine.clearCache();this.render();this.emit('fill',{source:src,target:dst,direction:extendsRows?(extendsColumns?'both':'vertical'):'horizontal'});return true;
+    this.render();this.emit('fill',{source:src,target:dst,direction:extendsRows?(extendsColumns?'both':'vertical'):'horizontal'});return true;
   }
   moveRange(source,destRow,destCol){
     this._recordHistory();
@@ -814,55 +950,67 @@ export class TinyDatagrid {
     const temp=[];for(let r=src.r1;r<=src.r2;r++)for(let c=src.c1;c<=src.c2;c++)temp.push([r-src.r1,c-src.c1,{...this.getCell(r,c)}]);
     for(let r=src.r1;r<=src.r2;r++)for(let c=src.c1;c<=src.c2;c++)this.cells.delete(this.key(r,c));
     temp.forEach(([dr,dc,cell])=>this.cells.set(this.key(destRow+dr,destCol+dc),cell));
-    this.engine.clearCache();this.selection={r1:destRow,c1:destCol,r2:destRow+(src.r2-src.r1),c2:destCol+(src.c2-src.c1)};this.render();this.updateSelectionOverlay();this.emit('move',{source:src,destination:{row:destRow,col:destCol}});
+    this.selection={r1:destRow,c1:destCol,r2:destRow+(src.r2-src.r1),c2:destCol+(src.c2-src.c1)};this.render();this.updateSelectionOverlay();this.emit('move',{source:src,destination:{row:destRow,col:destCol}});
   }
   build(){
-    this.el.classList.add('tg-root'); this.el.tabIndex=0;this.el.setAttribute('aria-readonly',String(this.readOnly));if(this.readOnly)this.el.classList.add('tg-readonly');
-    this.el.innerHTML=`<div class="tg-corner"></div><div class="tg-colheaders"></div><div class="tg-rowheaders"></div><div class="tg-scroll"><div class="tg-canvas"></div></div><div class="tg-selection"><div class="tg-fill-handle"></div></div><div class="tg-context-menu" role="menu" hidden></div><div class="tg-filter-menu" role="dialog" aria-label="Filter" hidden></div><div class="tg-autofill-menu" role="dialog" aria-label="Ausfüllmethode" hidden></div><input class="tg-editor" spellcheck="false"/>`;
+    this.el.classList.add('tg-root'); this.el.tabIndex=0;this.el.setAttribute('role','grid');this.el.setAttribute('aria-multiselectable','true');this.el.setAttribute('aria-readonly',String(this.readOnly));if(this.readOnly)this.el.classList.add('tg-readonly');
+    this.el.innerHTML=`<div class="tg-corner"></div><div class="tg-colheaders" role="row" aria-rowindex="1"></div><div class="tg-rowheaders" aria-hidden="true"></div><div class="tg-scroll"><div class="tg-canvas"></div></div><div class="tg-selection"><div class="tg-fill-handle"></div></div><div class="tg-context-menu" role="menu" hidden></div><div class="tg-filter-menu" role="dialog" aria-label="Filter" hidden></div><div class="tg-autofill-menu" role="dialog" aria-label="Ausfüllmethode" hidden></div><input class="tg-editor" spellcheck="false"/>`;
     this.scroll=this.el.querySelector('.tg-scroll');this.canvas=this.el.querySelector('.tg-canvas');this.colHeaders=this.el.querySelector('.tg-colheaders');this.rowHeaders=this.el.querySelector('.tg-rowheaders');this.selectionEl=this.el.querySelector('.tg-selection');this.fillHandle=this.el.querySelector('.tg-fill-handle');this.fillHandle.setAttribute('role','button');this.fillHandle.setAttribute('tabindex','0');this.fillHandle.setAttribute('aria-label','Fill selected cells');this.fillHandle.title='Drag to fill or double-click to fill down';this.contextMenu=this.el.querySelector('.tg-context-menu');this.filterMenu=this.el.querySelector('.tg-filter-menu');this.autofillMenu=this.el.querySelector('.tg-autofill-menu');this.editor=this.el.querySelector('.tg-editor');this.editor.readOnly=this.readOnly;
   }
   _setColumnSelection(col){this.anchor={row:0,col};this.selection={r1:0,c1:col,r2:this.rowCount-1,c2:col};this.updateSelectionOverlay();this.emit('select',{...this.selection})}
   _setRowSelection(row){this.anchor={row,col:0};this.selection={r1:row,c1:0,r2:row,c2:this.colCount-1};this.updateSelectionOverlay();this.emit('select',{...this.selection})}
   _positionContextMenu(){const menu=this.contextMenu,root=this.el.getBoundingClientRect(),point=this._contextMenuPoint;menu.hidden=false;const width=menu.offsetWidth,height=menu.offsetHeight;menu.style.left=clamp(point.x-root.left,0,Math.max(0,root.width-width))+'px';menu.style.top=clamp(point.y-root.top,0,Math.max(0,root.height-height))+'px'}
   _renderAxisMenu(axis,index,sizeEditor=false){
-    this._contextMenuAxis=axis;this._contextMenuIndex=index;const row=axis==='row',sizeName=row?'Zeilenhöhe':'Spaltenbreite',size=row?this.rowHeights[index]:this.colWidths[index],min=row?18:36,max=row?400:800;
-    if(sizeEditor){this.contextMenu.innerHTML=`<div class="tg-menu-title">${sizeName}</div><form class="tg-width-form"><label for="tg-size-input">${row?'Höhe':'Breite'} (${min}–${max} px)</label><input id="tg-size-input" type="number" min="${min}" max="${max}" step="1" value="${Math.round(size)}"><div class="tg-menu-actions"><button type="button" data-action="back">Zurück</button><button type="submit">OK</button></div></form>`;this._positionContextMenu();const input=this.contextMenu.querySelector('input');input.focus();input.select();return}
+    this._contextMenuAxis=axis;this._contextMenuIndex=index;const row=axis==='row',sizeName=row?this.t('rowHeight'):this.t('columnWidth'),size=row?this.rowHeights[index]:this.colWidths[index],min=row?18:36,max=row?400:800;
+    if(sizeEditor){this.contextMenu.innerHTML=`<div class="tg-menu-title">${sizeName}</div><form class="tg-width-form"><label for="${this._gridId}-size">${this.t(row?'height':'width')} (${min}–${max} px)</label><input id="${this._gridId}-size" type="number" min="${min}" max="${max}" step="1" value="${Math.round(size)}"><div class="tg-menu-actions"><button type="button" data-action="back">${this.t('back')}</button><button type="submit">OK</button></div></form>`;this._positionContextMenu();const input=this.contextMenu.querySelector('input');input.focus({preventScroll:true});input.select();return}
     const items=row?[
-      ['copy','Zeile kopieren'],['clear','Inhalte löschen'],
-      ['insertBefore','Zeile darüber einfügen'],['insertAfter','Zeile darunter einfügen'],['delete','Zeile löschen'],
-      ['size','Zeilenhöhe…'],['autoFit','Zeilenhöhe automatisch anpassen'],
-      ['hide','Zeile ausblenden'],['showAll','Alle ausgeblendeten Zeilen einblenden']
+      ['copy',this.t('copyRow')],['clear',this.t('clear')],
+      ['insertBefore',this.t('insertRowBefore')],['insertAfter',this.t('insertRowAfter')],['delete',this.t('deleteRow')],
+      ['size',this.t('rowHeight')+'…'],['autoFit',this.t('autoFitRow')],
+      ['hide',this.t('hideRow')],['showAll',this.t('showRows')]
     ]:[
-      ['copy','Spalte kopieren'],['clear','Inhalte löschen'],
-      ['insertBefore','Spalte links einfügen'],['insertAfter','Spalte rechts einfügen'],['delete','Spalte löschen'],
-      ['size','Spaltenbreite…'],['autoFit','Spaltenbreite automatisch anpassen'],
-      ['hide','Spalte ausblenden'],['showAll','Alle ausgeblendeten Spalten einblenden']
+      ['copy',this.t('copyColumn')],['clear',this.t('clear')],
+      ['insertBefore',this.t('insertColumnBefore')],['insertAfter',this.t('insertColumnAfter')],['delete',this.t('deleteColumn')],
+      ['size',this.t('columnWidth')+'…'],['autoFit',this.t('autoFitColumn')],
+      ['hide',this.t('hideColumn')],['showAll',this.t('showColumns')]
     ];
     this.contextMenu.replaceChildren();
     let visibleItems=this.readOnly?items.slice(0,1):items;if(this.sqlBinding&&!this.readOnly)visibleItems=row?items.filter(([action])=>['copy','clear','delete','size','autoFit','hide','showAll'].includes(action)):items.filter(([action])=>['copy','size','autoFit','hide','showAll'].includes(action));
     visibleItems.forEach(([action,label],itemIndex)=>{if([2,5,7].includes(itemIndex)){const separator=document.createElement('div');separator.className='tg-menu-separator';separator.setAttribute('role','separator');this.contextMenu.append(separator)}const button=document.createElement('button');button.type='button';button.className='tg-menu-item';button.setAttribute('role','menuitem');button.dataset.action=action;button.textContent=label;if(action==='delete'&&(row?this.rowCount:this.colCount)<=1)button.disabled=true;if(action==='hide'&&(row?this.hiddenRows.size>=this.rowCount-1:this.hiddenColumns.size>=this.colCount-1))button.disabled=true;if(action==='showAll'&&!(row?this.hiddenRows.size:this.hiddenColumns.size))button.disabled=true;this.contextMenu.append(button)});
-    this._positionContextMenu();
+    this._positionContextMenu();this.contextMenu.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
   }
   _openColumnMenu(col,event){event.preventDefault();event.stopPropagation();this._setColumnSelection(col);this._contextMenuPoint={x:event.clientX,y:event.clientY};this._renderAxisMenu('column',col)}
   _openRowMenu(row,event){event.preventDefault();event.stopPropagation();this._setRowSelection(row);this._contextMenuPoint={x:event.clientX,y:event.clientY};this._renderAxisMenu('row',row)}
-  _closeColumnMenu(){this.contextMenu.hidden=true;this.contextMenu.replaceChildren()}
+  _closeColumnMenu(){const focused=this.contextMenu.contains(document.activeElement);this.contextMenu.hidden=true;this.contextMenu.replaceChildren();if(focused)this.el.focus({preventScroll:true})}
   _handleAxisMenuAction(action){if(this.readOnly&&action!=='copy')return;const axis=this._contextMenuAxis,index=this._contextMenuIndex,row=axis==='row';if(this.sqlBinding&&!row&&['clear','insertBefore','insertAfter','delete'].includes(action))return;if(action==='size'){this._renderAxisMenu(axis,index,true);return}if(action==='back'){this._renderAxisMenu(axis,index);return}if(action==='copy'){const range=row?{r1:index,c1:0,r2:index,c2:this.colCount-1}:{r1:0,c1:index,r2:this.rowCount-1,c2:index};const text=this.toArray(range,false).map(values=>values.join('\t')).join('\n');navigator.clipboard?.writeText(text).catch(()=>{});this._closeColumnMenu();return}this._closeColumnMenu();if(action==='clear')row?this.clearRow(index):this.clearColumn(index);else if(action==='insertBefore')row?this.insertRow(index):this.insertColumn(index);else if(action==='insertAfter')row?this.insertRow(index+1):this.insertColumn(index+1);else if(action==='delete')row?this.deleteRow(index):this.deleteColumn(index);else if(action==='autoFit')row?this.autoFitRow(index):this.autoFitColumn(index);else if(action==='hide')row?this.hideRow(index):this.hideColumn(index);else if(action==='showAll')row?this.showAllRows():this.showAllColumns()}
   _openFilterMenu(col,trigger){
     if(!this.table||col<this.table.c1||col>this.table.c2)return;
     this._filterColumn=col;this._filterOptions=new Map();for(let row=this.table.headerRow+1;row<=this.table.r2;row++){const value=String(this.getComputedValue(row,col)??'');this._filterOptions.set(value,(this._filterOptions.get(value)||0)+1)}
     const active=this.columnFilters.get(col),menu=this.filterMenu;menu.replaceChildren();
     const title=document.createElement('div');title.className='tg-filter-title';title.textContent=String(this.getComputedValue(this.table.headerRow,col)||colToName(col));menu.append(title);
-    if(!this.readOnly||this.sqlBinding){for(const [direction,label] of [['asc','Aufsteigend sortieren'],['desc','Absteigend sortieren']]){const button=document.createElement('button');button.type='button';button.className='tg-menu-item';button.dataset.sort=direction;button.textContent=label;menu.append(button)}const separator=document.createElement('div');separator.className='tg-menu-separator';menu.append(separator)}
-    const search=document.createElement('input');search.type='search';search.className='tg-filter-search';search.placeholder='Suchen';search.setAttribute('aria-label','Filterwerte suchen');menu.append(search);
+    if(!this.readOnly||this.sqlBinding){for(const [direction,label] of [['asc',this.t('ascending')],['desc',this.t('descending')]]){const button=document.createElement('button');button.type='button';button.className='tg-menu-item';button.dataset.sort=direction;button.textContent=label;menu.append(button)}const separator=document.createElement('div');separator.className='tg-menu-separator';menu.append(separator)}
+    const search=document.createElement('input');search.type='search';search.className='tg-filter-search';search.placeholder=this.t('search');search.setAttribute('aria-label',this.t('searchValues'));menu.append(search);
     const options=document.createElement('div');options.className='tg-filter-options';options.dataset.filterOptions='';
-    const all=document.createElement('label');all.className='tg-filter-option';const allBox=document.createElement('input');allBox.type='checkbox';allBox.dataset.selectAll='';allBox.checked=!active||active.size===this._filterOptions.size;all.append(allBox,document.createTextNode(' (Alle auswählen)'));options.append(all);
-    for(const [value,count] of this._filterOptions){const label=document.createElement('label');label.className='tg-filter-option';label.dataset.search=value.toLocaleLowerCase();const box=document.createElement('input');box.type='checkbox';box.dataset.filterValue=value;box.checked=!active||active.has(value);const text=document.createElement('span');text.textContent=value||'(Leer)';const amount=document.createElement('small');amount.textContent=String(count);label.append(box,text,amount);options.append(label)}menu.append(options);
-    const actions=document.createElement('div');actions.className='tg-menu-actions';const clear=document.createElement('button');clear.type='button';clear.dataset.filterClear='';clear.textContent='Filter löschen';const apply=document.createElement('button');apply.type='button';apply.dataset.filterApply='';apply.textContent='Anwenden';actions.append(clear,apply);menu.append(actions);
-    const root=this.el.getBoundingClientRect(),rect=trigger.getBoundingClientRect();menu.hidden=false;menu.style.left=clamp(rect.left-root.left,0,Math.max(0,root.width-menu.offsetWidth))+'px';menu.style.top=clamp(rect.bottom-root.top,0,Math.max(0,root.height-menu.offsetHeight))+'px';
+    const all=document.createElement('label');all.className='tg-filter-option';const allBox=document.createElement('input');allBox.type='checkbox';allBox.dataset.selectAll='';allBox.checked=!active||active.size===this._filterOptions.size;all.append(allBox,document.createTextNode(' '+this.t('selectAll')));options.append(all);
+    for(const [value,count] of this._filterOptions){const label=document.createElement('label');label.className='tg-filter-option';label.dataset.search=value.toLocaleLowerCase();const box=document.createElement('input');box.type='checkbox';box.dataset.filterValue=value;box.setAttribute('aria-label',value||this.t('empty'));box.checked=!active||active.has(value);const text=document.createElement('span');text.textContent=value||'('+this.t('empty')+')';const amount=document.createElement('small');amount.textContent=String(count);label.append(box,text,amount);options.append(label)}menu.append(options);
+    const actions=document.createElement('div');actions.className='tg-menu-actions';const clear=document.createElement('button');clear.type='button';clear.dataset.filterClear='';clear.textContent=this.t('clearFilter');const apply=document.createElement('button');apply.type='button';apply.dataset.filterApply='';apply.textContent=this.t('apply');actions.append(clear,apply);menu.append(actions);
+    this._syncFilterSelectAll();const root=this.el.getBoundingClientRect(),rect=trigger.getBoundingClientRect();menu.hidden=false;menu.style.left=clamp(rect.left-root.left,0,Math.max(0,root.width-menu.offsetWidth))+'px';menu.style.top=clamp(rect.bottom-root.top,0,Math.max(0,root.height-menu.offsetHeight))+'px';menu.querySelector('button,input')?.focus({preventScroll:true});
   }
-  _closeFilterMenu(){this.filterMenu.hidden=true;this.filterMenu.replaceChildren()}
+  _syncFilterSelectAll(){
+    const all=this.filterMenu.querySelector('[data-select-all]');if(!all)return;
+    const visible=[...this.filterMenu.querySelectorAll('[data-filter-value]')].filter(box=>!box.closest('.tg-filter-option').hidden),checked=visible.filter(box=>box.checked).length;
+    all.checked=visible.length>0&&checked===visible.length;all.indeterminate=checked>0&&checked<visible.length;all.disabled=!visible.length;
+  }
+  _closeFilterMenu(){const focused=this.filterMenu.contains(document.activeElement);this.filterMenu.hidden=true;this.filterMenu.replaceChildren();if(focused)this.el.focus({preventScroll:true})}
   _handleFilterMenuClick(event){const button=event.target.closest('button');if(!button)return;const col=this._filterColumn;if(button.dataset.sort){this._closeFilterMenu();this.sortTable(col,button.dataset.sort)}else if(button.hasAttribute('data-filter-clear')){this.setColumnFilter(col,null);this._closeFilterMenu()}else if(button.hasAttribute('data-filter-apply')){const checked=[...this.filterMenu.querySelectorAll('[data-filter-value]:checked')].map(input=>input.dataset.filterValue);this.setColumnFilter(col,checked.length===this._filterOptions.size?null:checked);this._closeFilterMenu()}}
   offsets(arr){const out=[0];for(let i=0;i<arr.length;i++)out.push(out[i]+arr[i]);return out}
+  _frozenCounts(){return this.feature('freezePanes')?{rows:clamp(Math.trunc(Number(this.freezePanes.rows))||0,0,this.rowCount-1),columns:clamp(Math.trunc(Number(this.freezePanes.columns))||0,0,this.colCount-1)}:{rows:0,columns:0}}
+  _renderIndices(range,axis){const frozen=this._frozenCounts()[axis];return [...new Set([...Array.from({length:frozen},(_,i)=>i),...Array.from({length:range.end-range.start},(_,i)=>range.start+i)])]}
+  _viewOffset(index,axis){const rows=axis==='rows',frozen=this._frozenCounts()[axis],offsets=rows?this.rowOffsets:this.colOffsets,scroll=rows?this.scroll.scrollTop:this.scroll.scrollLeft;return index<frozen?offsets[index]:Math.max(offsets[frozen]||0,offsets[index]-scroll)}
+  _syncFrozenCells(){
+    const frozen=this._frozenCounts();if(!frozen.rows&&!frozen.columns)return;
+    for(const cell of this.canvas.querySelectorAll('.tg-cell')){const r=+cell.dataset.row,c=+cell.dataset.col;if(r<frozen.rows||c<frozen.columns){cell.style.left=(this.colOffsets[c]+(c<frozen.columns?this.scroll.scrollLeft:0))+'px';cell.style.top=(this.rowOffsets[r]+(r<frozen.rows?this.scroll.scrollTop:0))+'px';cell.style.zIndex=r<frozen.rows&&c<frozen.columns?'4':'3'}}
+  }
   _visibleRange(offsets,count,scrollPosition,viewportSize,fallbackSize){
     if(!count)return {start:0,end:0};
     const size=viewportSize||fallbackSize,first=Math.min(count-1,Math.max(0,upperBound(offsets,Math.max(0,scrollPosition))-1)),last=upperBound(offsets,Math.max(0,scrollPosition)+size);
@@ -875,6 +1023,7 @@ export class TinyDatagrid {
   }
   layout(){
     this._updateFilteredRows();this.displayColWidths=this.colWidths.map((width,col)=>this.hiddenColumns.has(col)?0:width);this.displayRowHeights=this.rowHeights.map((height,row)=>this.hiddenRows.has(row)||this.filteredRows.has(row)?0:height);this.colOffsets=this.offsets(this.displayColWidths);this.rowOffsets=this.offsets(this.displayRowHeights);const W=this.colOffsets.at(-1),H=this.rowOffsets.at(-1);
+    this.el.setAttribute('aria-rowcount',String(this.rowCount+1));this.el.setAttribute('aria-colcount',String(this.colCount));
     this.canvas.style.width=W+'px';this.canvas.style.height=H+'px';
     this.renderHeaders();this.renderCells();this.syncHeaders();this.updateSelectionOverlay();
   }
@@ -883,47 +1032,55 @@ export class TinyDatagrid {
     this.colHeaders.innerHTML='';this.rowHeaders.innerHTML='';
     const cols=this.virtualization?this._visibleRange(this.colOffsets,this.colCount,this.scroll.scrollLeft,this.scroll.clientWidth,this.options.columnWidth*10):{start:0,end:this.colCount};
     const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this.scroll.scrollTop,this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
-    for(let c=cols.start;c<cols.end;c++){if(this.virtualization&&!this.displayColWidths[c])continue;const h=document.createElement('div');h.className='tg-colhead';h.textContent=colToName(c);h.style.left=this.colOffsets[c]+'px';h.style.width=this.displayColWidths[c]+'px';h.dataset.col=c;if(this.hiddenColumns.has(c))h.classList.add('tg-hidden-column');const rz=document.createElement('span');rz.className='tg-resize-x';h.append(rz);this.colHeaders.append(h)}
-    for(let r=rows.start;r<rows.end;r++){if(this.virtualization&&!this.displayRowHeights[r])continue;const h=document.createElement('div');h.className='tg-rowhead';h.textContent=String(r+1);h.style.top=this.rowOffsets[r]+'px';h.style.height=this.displayRowHeights[r]+'px';h.dataset.row=r;if(this.hiddenRows.has(r)||this.filteredRows.has(r))h.classList.add('tg-hidden-row');const rz=document.createElement('span');rz.className='tg-resize-y';h.append(rz);this.rowHeaders.append(h)}
+    for(const c of this._renderIndices(cols,'columns')){if(this.virtualization&&!this.displayColWidths[c])continue;const h=document.createElement('div');h.className='tg-colhead';h.textContent=colToName(c);h.style.left=this.colOffsets[c]+'px';h.style.width=this.displayColWidths[c]+'px';h.dataset.col=c;h.setAttribute('role','columnheader');h.setAttribute('aria-colindex',String(c+1));if(this.hiddenColumns.has(c))h.classList.add('tg-hidden-column');const rz=document.createElement('span');rz.className='tg-resize-x';h.append(rz);this.colHeaders.append(h)}
+    for(const r of this._renderIndices(rows,'rows')){if(this.virtualization&&!this.displayRowHeights[r])continue;const h=document.createElement('div');h.className='tg-rowhead';h.textContent=String(r+1);h.style.top=this.rowOffsets[r]+'px';h.style.height=this.displayRowHeights[r]+'px';h.dataset.row=r;if(this.hiddenRows.has(r)||this.filteredRows.has(r))h.classList.add('tg-hidden-row');const rz=document.createElement('span');rz.className='tg-resize-y';h.append(rz);this.rowHeaders.append(h)}
   }
   syncHeaders(){
     const sx=this.scroll?.scrollLeft||0, sy=this.scroll?.scrollTop||0;
-    this.colHeaders.querySelectorAll('.tg-colhead').forEach(h=>{const c=+h.dataset.col;h.style.left=(this.colOffsets[c]-sx)+'px'});
-    this.rowHeaders.querySelectorAll('.tg-rowhead').forEach(h=>{const r=+h.dataset.row;h.style.top=(this.rowOffsets[r]-sy)+'px'});
+    this.colHeaders.querySelectorAll('.tg-colhead').forEach(h=>{const c=+h.dataset.col;h.style.left=(this.colOffsets[c]-(c<this._frozenCounts().columns?0:sx))+'px';h.style.zIndex=c<this._frozenCounts().columns?'2':'1'});
+    this.rowHeaders.querySelectorAll('.tg-rowhead').forEach(h=>{const r=+h.dataset.row;h.style.top=(this.rowOffsets[r]-(r<this._frozenCounts().rows?0:sy))+'px';h.style.zIndex=r<this._frozenCounts().rows?'2':'1'});
   }
   renderCells(){
     this.canvas.innerHTML='';const frag=document.createDocumentFragment();
     const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this.scroll.scrollTop,this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
     const cols=this.virtualization?this._visibleRange(this.colOffsets,this.colCount,this.scroll.scrollLeft,this.scroll.clientWidth,this.options.columnWidth*10):{start:0,end:this.colCount};
-    for(let r=rows.start;r<rows.end;r++)for(let c=cols.start;c<cols.end;c++){
+    for(const r of this._renderIndices(rows,'rows')){
+      if(!this.displayRowHeights[r])continue;
+      const rowElement=document.createElement('div');rowElement.setAttribute('role','row');rowElement.setAttribute('aria-rowindex',String(r+2));frag.append(rowElement);
+      for(const c of this._renderIndices(cols,'columns')){
       if(this.virtualization&&(!this.displayRowHeights[r]||!this.displayColWidths[c]))continue;
-      const d=document.createElement('div');d.className='tg-cell';d.dataset.row=r;d.dataset.col=c;d.draggable=false;d.style.left=this.colOffsets[c]+'px';d.style.top=this.rowOffsets[r]+'px';d.style.width=this.displayColWidths[c]+'px';d.style.height=this.displayRowHeights[r]+'px';if(this.hiddenColumns.has(c))d.classList.add('tg-hidden-column');if(this.hiddenRows.has(r)||this.filteredRows.has(r))d.classList.add('tg-hidden-row');
+      const d=document.createElement('div');d.className='tg-cell';d.dataset.row=r;d.dataset.col=c;d.id=`${this._gridId}-cell-${r}-${c}`;d.setAttribute('role','gridcell');d.setAttribute('aria-colindex',String(c+1));d.draggable=false;d.style.left=this.colOffsets[c]+'px';d.style.top=this.rowOffsets[r]+'px';d.style.width=this.displayColWidths[c]+'px';d.style.height=this.displayRowHeights[r]+'px';if(this.hiddenColumns.has(c))d.classList.add('tg-hidden-column');if(this.hiddenRows.has(r)||this.filteredRows.has(r))d.classList.add('tg-hidden-row');
       const v=this.getComputedValue(r,c);const meta=this.getCell(r,c);
-      if(this.table&&r===this.table.headerRow&&c>=this.table.c1&&c<=this.table.c2){d.classList.add('tg-table-header');const label=document.createElement('span');label.className='tg-table-header-label';label.textContent=this.formatValue(v,meta.numberFormat);const trigger=document.createElement('button');trigger.type='button';trigger.className='tg-filter-trigger';trigger.dataset.filterColumn=c;trigger.setAttribute('aria-label',`Filter ${label.textContent}`);trigger.textContent=this.columnFilters.has(c)?'▾•':'▾';d.append(label,trigger)}else d.textContent=this.formatValue(v,meta.numberFormat);
-      if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);if(this.table&&this.table.style==='banded'&&r>this.table.headerRow&&(r-this.table.headerRow)%2===0)d.classList.add('tg-table-banded');frag.append(d);
+      if(this.table&&r===this.table.headerRow&&c>=this.table.c1&&c<=this.table.c2){d.classList.add('tg-table-header');const label=document.createElement('span');label.className='tg-table-header-label';label.textContent=this.formatValue(v,meta.numberFormat);const trigger=document.createElement('button');trigger.type='button';trigger.className='tg-filter-trigger';trigger.dataset.filterColumn=c;trigger.tabIndex=-1;trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-label',`${this.t('filter')} ${label.textContent}`);trigger.textContent=this.columnFilters.has(c)?'▾•':'▾';d.append(label,trigger)}else d.textContent=this.formatValue(v,meta.numberFormat);
+      if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);const conditional=this.feature('conditionalFormatting');if(conditional)Object.assign(d.style,conditional.cellStyle(r,c,v));const invalid=this.feature('validation')?.validate(r,c,this.getRawValue(r,c));if(invalid){d.setAttribute('aria-invalid','true');d.title=invalid;d.classList.add('tg-invalid')}if(this.table&&this.table.style==='banded'&&r>this.table.headerRow&&(r-this.table.headerRow)%2===0)d.classList.add('tg-table-banded');rowElement.append(d);
+      }
     }
-    this.canvas.append(frag);this.updateSelectionOverlay();
+    this.canvas.append(frag);this._syncFrozenCells();this.updateSelectionOverlay();
   }
   formatValue(value,format){
-    if(value instanceof Date)return value.toLocaleString();
+    if(value instanceof Date)return value.toLocaleString(this.locale);
     if(value instanceof ArrayBuffer||ArrayBuffer.isView(value))return `[Binary ${value.byteLength} bytes]`;
     if(value&&typeof value==='object')return JSON.stringify(value);
     if(typeof value!=='number'||!Number.isFinite(value)||!format)return String(value??'');
     const config=typeof format==='string'?{type:format}:format;
-    if(config.type==='currency')return new Intl.NumberFormat(config.locale,{style:'currency',currency:config.currency||'EUR',maximumFractionDigits:config.maximumFractionDigits??2}).format(value);
-    if(config.type==='percent')return new Intl.NumberFormat(config.locale,{style:'percent',maximumFractionDigits:config.maximumFractionDigits??1}).format(value);
-    if(config.type==='number')return new Intl.NumberFormat(config.locale,{maximumFractionDigits:config.maximumFractionDigits??2}).format(value);
+    if(config.type==='currency')return new Intl.NumberFormat(config.locale||this.locale,{style:'currency',currency:config.currency||'EUR',maximumFractionDigits:config.maximumFractionDigits??2}).format(value);
+    if(config.type==='percent')return new Intl.NumberFormat(config.locale||this.locale,{style:'percent',maximumFractionDigits:config.maximumFractionDigits??1}).format(value);
+    if(config.type==='number')return new Intl.NumberFormat(config.locale||this.locale,{maximumFractionDigits:config.maximumFractionDigits??2}).format(value);
     return String(value);
   }
   getCellAtClient(x,y){
-    const rect=this.scroll.getBoundingClientRect();const px=x-rect.left+this.scroll.scrollLeft,py=y-rect.top+this.scroll.scrollTop;
+    const rect=this.scroll.getBoundingClientRect();const frozen=this._frozenCounts(),localX=x-rect.left,localY=y-rect.top;const px=localX+(localX<(this.colOffsets[frozen.columns]||0)?0:this.scroll.scrollLeft),py=localY+(localY<(this.rowOffsets[frozen.rows]||0)?0:this.scroll.scrollTop);
     const find=(offs,p)=>{let lo=0,hi=offs.length-2;while(lo<=hi){const m=(lo+hi)>>1;if(p<offs[m])hi=m-1;else if(p>=offs[m+1])lo=m+1;else return m}return clamp(lo,0,offs.length-2)};
     return {row:find(this.rowOffsets,py),col:find(this.colOffsets,px)};
   }
   updateSelectionOverlay(){
-    if(!this.colOffsets)return;const s=this.selection;const r1=Math.min(s.r1,s.r2),r2=Math.max(s.r1,s.r2),c1=Math.min(s.c1,s.c2),c2=Math.max(s.c1,s.c2);
-    const sr=this.scroll.getBoundingClientRect(),root=this.el.getBoundingClientRect();const left=this.options.headerWidth + this.colOffsets[c1]-this.scroll.scrollLeft;const top=this.options.headerHeight + this.rowOffsets[r1]-this.scroll.scrollTop;
-    this.selectionEl.style.left=left+'px';this.selectionEl.style.top=top+'px';this.selectionEl.style.width=(this.colOffsets[c2+1]-this.colOffsets[c1])+'px';this.selectionEl.style.height=(this.rowOffsets[r2+1]-this.rowOffsets[r1])+'px';
+    if(!this.colOffsets)return;const s=this.selection;
+    const activeId=`${this._gridId}-cell-${s.r2}-${s.c2}`,active=this.canvas.querySelector(`#${activeId}`);
+    if(active&&!this.hiddenColumns.has(s.c2)&&!this.filteredRows.has(s.r2)&&!this.hiddenRows.has(s.r2))this.el.setAttribute('aria-activedescendant',activeId);else this.el.removeAttribute('aria-activedescendant');
+    this.canvas.querySelectorAll('[role=gridcell]').forEach(cell=>{const r=+cell.dataset.row,c=+cell.dataset.col;cell.setAttribute('aria-selected',String(r>=Math.min(s.r1,s.r2)&&r<=Math.max(s.r1,s.r2)&&c>=Math.min(s.c1,s.c2)&&c<=Math.max(s.c1,s.c2))) });
+    const r1=Math.min(s.r1,s.r2),r2=Math.max(s.r1,s.r2),c1=Math.min(s.c1,s.c2),c2=Math.max(s.c1,s.c2);
+    const sr=this.scroll.getBoundingClientRect(),root=this.el.getBoundingClientRect();const left=this.options.headerWidth + this._viewOffset(c1,'columns');const top=this.options.headerHeight + this._viewOffset(r1,'rows');
+    this.selectionEl.style.left=left+'px';this.selectionEl.style.top=top+'px';this.selectionEl.style.width=Math.max(0,this._viewOffset(c2,'columns')+this.displayColWidths[c2]-this._viewOffset(c1,'columns'))+'px';this.selectionEl.style.height=Math.max(0,this._viewOffset(r2,'rows')+this.displayRowHeights[r2]-this._viewOffset(r1,'rows'))+'px';
     this.selectionEl.style.display=this.colOffsets[c2+1]===this.colOffsets[c1]||this.rowOffsets[r2+1]===this.rowOffsets[r1]?'none':'block';
   }
   select(row,col,extend=false){
@@ -934,62 +1091,89 @@ export class TinyDatagrid {
   goTo(row,col){const grew=this.ensureSize(row+1,col+1);if(grew)this.render();this.select(row,col);this.scrollToCell(row,col);return this}
   scrollToCell(row,col){
     const top=this.rowOffsets[row]||0,bottom=this.rowOffsets[row+1]??top,left=this.colOffsets[col]||0,right=this.colOffsets[col+1]??left;
-    if(top<this.scroll.scrollTop)this.scroll.scrollTop=top;else if(bottom>this.scroll.scrollTop+this.scroll.clientHeight)this.scroll.scrollTop=bottom-this.scroll.clientHeight;
-    if(left<this.scroll.scrollLeft)this.scroll.scrollLeft=left;else if(right>this.scroll.scrollLeft+this.scroll.clientWidth)this.scroll.scrollLeft=right-this.scroll.clientWidth;
+    const frozen=this._frozenCounts();if(row>=frozen.rows){if(top<this.scroll.scrollTop+this.rowOffsets[frozen.rows])this.scroll.scrollTop=top-this.rowOffsets[frozen.rows];else if(bottom>this.scroll.scrollTop+this.scroll.clientHeight)this.scroll.scrollTop=bottom-this.scroll.clientHeight;}
+    if(col>=frozen.columns){if(left<this.scroll.scrollLeft+this.colOffsets[frozen.columns])this.scroll.scrollLeft=left-this.colOffsets[frozen.columns];else if(right>this.scroll.scrollLeft+this.scroll.clientWidth)this.scroll.scrollLeft=right-this.scroll.clientWidth;}
   }
   edit(row=this.selection.r2,col=this.selection.c2,initial=null){
     if(this.isCellReadOnly(row,col))return false;
-    const left=this.options.headerWidth+this.colOffsets[col]-this.scroll.scrollLeft,top=this.options.headerHeight+this.rowOffsets[row]-this.scroll.scrollTop;
-    this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.value=initial??this.getRawValue(row,col);this.editor.style.display='block';this.editor.focus();this.editor.select();this._editing={row,col};
+    const left=this.options.headerWidth+this._viewOffset(col,'columns'),top=this.options.headerHeight+this._viewOffset(row,'rows');
+    this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.setAttribute('aria-label',`${toA1(row,col)} · ${this.t('editor')}`);this.editor.value=initial??this.getRawValue(row,col);this.editor.style.display='block';this.editor.focus({preventScroll:true});this.editor.select();this._editing={row,col};
   }
-  commitEdit(cancel=false){if(!this._editing)return;if(!cancel&&!this.isCellReadOnly(this._editing.row,this._editing.col)){const {row,col}=this._editing;this.setCell(row,col,this.editor.value)}this._editing=null;this.editor.style.display='none';this.el.focus()}
+  commitEdit(cancel=false){if(!this._editing)return;if(!cancel&&!this.isCellReadOnly(this._editing.row,this._editing.col)){const {row,col}=this._editing;if(this.setCell(row,col,this.editor.value)===false){this.editor.setCustomValidity(this.feature('validation')?.validate(row,col,this.editor.value)||'Invalid value');this.editor.reportValidity();return false}}this.editor.setCustomValidity('');this._editing=null;this.editor.style.display='none';this.el.focus({preventScroll:true})}
   copySelection(){return this.toArray(this.selection,false).map(r=>r.join('\t')).join('\n')}
-  pasteText(text,start=this.anchor){if(this.readOnly)return false;const rows=text.replace(/\r/g,'').split('\n').map(r=>r.split('\t'));if(this.sqlBinding&&rows.some((row,dr)=>row.some((_,dc)=>this.isCellReadOnly(start.row+dr,start.col+dc))))return false;this._recordHistory();rows.forEach((rr,dr)=>rr.forEach((v,dc)=>this.cells.set(this.key(start.row+dr,start.col+dc),{raw:this._coerceSQLValue(start.col+dc,v)})));this.ensureSize(start.row+rows.length,start.col+Math.max(...rows.map(r=>r.length)));this.engine.clearCache();this.render();return true}
+  pasteText(text,start=this.anchor){if(this.readOnly)return false;const rows=text.replace(/\r/g,'').split('\n').map(r=>r.split('\t'));if(this.sqlBinding&&rows.some((row,dr)=>row.some((_,dc)=>this.isCellReadOnly(start.row+dr,start.col+dc))))return false;this._recordHistory();rows.forEach((rr,dr)=>rr.forEach((v,dc)=>this.cells.set(this.key(start.row+dr,start.col+dc),{raw:this._coerceSQLValue(start.col+dc,v)})));this.ensureSize(start.row+rows.length,start.col+Math.max(...rows.map(r=>r.length)));this.render();this.emit('change',{type:'paste'});return true}
   bind(){
     this._syncVirtualizationObserver();
     if(typeof globalThis.addEventListener==='function')this._listen(globalThis,'resize',()=>this._scheduleVirtualRender());
-    this._listen(this.scroll,'scroll',()=>{this.syncHeaders();this.updateSelectionOverlay();this._scheduleVirtualRender();this._closeColumnMenu();this._closeFilterMenu();this._closeAutofillMenu(true);this.emit('scroll',{scrollTop:this.scroll.scrollTop,clientHeight:this.scroll.clientHeight,scrollHeight:this.scroll.scrollHeight,remaining:Math.max(0,this.scroll.scrollHeight-this.scroll.scrollTop-this.scroll.clientHeight)})});
-    this._listen(document,'pointerdown',e=>{if(!this.autofillMenu.hidden&&!this.el.contains(e.target))this._closeAutofillMenu(true)});
+    this._listen(this.scroll,'scroll',()=>{this.syncHeaders();this._syncFrozenCells();this.updateSelectionOverlay();this._scheduleVirtualRender();this._closeColumnMenu();this._closeFilterMenu();this._closeAutofillMenu(true);this.emit('scroll',{scrollTop:this.scroll.scrollTop,clientHeight:this.scroll.clientHeight,scrollHeight:this.scroll.scrollHeight,remaining:Math.max(0,this.scroll.scrollHeight-this.scroll.scrollTop-this.scroll.clientHeight)})});
+    this._listen(document,'pointerdown',e=>{if(!this.el.contains(e.target)){this._closeFilterMenu();this._closeColumnMenu();this._closeAutofillMenu(true)}});
     this._listen(this.colHeaders,'contextmenu',e=>{const h=e.target.closest('.tg-colhead');if(h&&!e.target.classList.contains('tg-resize-x'))this._openColumnMenu(+h.dataset.col,e)});
     this._listen(this.el,'pointerdown',e=>{if(!this.contextMenu.hidden&&!this.contextMenu.contains(e.target))this._closeColumnMenu();if(!this.filterMenu.hidden&&!this.filterMenu.contains(e.target)&&!e.target.closest('.tg-filter-trigger'))this._closeFilterMenu();if(!this.autofillMenu.hidden&&!this.autofillMenu.contains(e.target))this._closeAutofillMenu(true)});
     this._listen(this.rowHeaders,'contextmenu',e=>{const h=e.target.closest('.tg-rowhead');if(h&&!e.target.classList.contains('tg-resize-y'))this._openRowMenu(+h.dataset.row,e)});
     this._listen(this.contextMenu,'click',e=>{const button=e.target.closest('[data-action]');if(button&&!button.disabled)this._handleAxisMenuAction(button.dataset.action)});
-    this._listen(this.contextMenu,'submit',e=>{if(!e.target.matches('.tg-width-form'))return;e.preventDefault();const input=e.target.querySelector('input'),size=Number(input.value),row=this._contextMenuAxis==='row',min=row?18:36,max=row?400:800;if(!Number.isFinite(size)||size<min||size>max){input.reportValidity();return}const index=this._contextMenuIndex;this._recordHistory();row?this.setRowHeight(index,size):this.setColumnWidth(index,size);this._closeColumnMenu()});
-    this._listen(this.contextMenu,'keydown',e=>{if(e.key==='Escape'){e.preventDefault();this._renderAxisMenu(this._contextMenuAxis,this._contextMenuIndex);this.contextMenu.querySelector('[data-action="size"]')?.focus()}});
+    this._listen(this.contextMenu,'submit',e=>{if(!e.target.matches('.tg-width-form'))return;e.preventDefault();const input=e.target.querySelector('input'),size=Number(input.value),row=this._contextMenuAxis==='row',min=row?18:36,max=row?400:800;if(!Number.isFinite(size)||size<min||size>max){input.reportValidity();return}const index=this._contextMenuIndex;row?this.setRowHeight(index,size):this.setColumnWidth(index,size);this._closeColumnMenu()});
+    this._listen(this.contextMenu,'keydown',e=>{
+      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(this.contextMenu.querySelector('form'))this._renderAxisMenu(this._contextMenuAxis,this._contextMenuIndex);else this._closeColumnMenu();return}
+      if(e.target.matches('input'))return;
+      const items=[...this.contextMenu.querySelectorAll('button:not(:disabled)')],index=items.indexOf(document.activeElement);
+      const next={ArrowDown:(index+1)%items.length,ArrowUp:(index+items.length-1)%items.length,Home:0,End:items.length-1}[e.key];
+      if(next!=null){e.preventDefault();items[next]?.focus({preventScroll:true})}
+    });
+    this._listen(this.filterMenu,'focusout',e=>{if(!this.filterMenu.hidden&&!this.filterMenu.contains(e.relatedTarget))this._closeFilterMenu()});
     this._listen(this.filterMenu,'click',e=>this._handleFilterMenuClick(e));
     this._listen(this.autofillMenu,'click',e=>{const button=e.target.closest('[data-autofill-mode]');if(button)this._chooseAutofill(button.dataset.autofillMode)});
     this._listen(this.autofillMenu,'keydown',e=>{if(e.key==='Escape'){e.preventDefault();this._closeAutofillMenu(true);this.fillHandle.focus()}});
     this._listen(this.autofillMenu,'focusout',e=>{if(!this.autofillMenu.hidden&&!this.autofillMenu.contains(e.relatedTarget))this._closeAutofillMenu(true)});
-    const filterInput=e=>{if(e.target.matches('.tg-filter-search')){const query=e.target.value.toLocaleLowerCase();this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{box.closest('.tg-filter-option').hidden=!box.dataset.filterValue.toLocaleLowerCase().includes(query)})}else if(e.target.matches('[data-select-all]'))this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{if(!box.closest('.tg-filter-option').hidden)box.checked=e.target.checked})};this._listen(this.filterMenu,'input',filterInput);this._listen(this.filterMenu,'change',filterInput);
+    const filterInput=e=>{if(e.target.matches('.tg-filter-search')){const query=e.target.value.toLocaleLowerCase();this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{box.closest('.tg-filter-option').hidden=!box.dataset.filterValue.toLocaleLowerCase().includes(query)})}else if(e.target.matches('[data-select-all]'))this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{if(!box.closest('.tg-filter-option').hidden)box.checked=e.target.checked});this._syncFilterSelectAll()};this._listen(this.filterMenu,'input',filterInput);this._listen(this.filterMenu,'change',filterInput);
     this._listen(this.canvas,'click',e=>{const trigger=e.target.closest('.tg-filter-trigger');if(trigger){e.preventDefault();e.stopPropagation();this._openFilterMenu(+trigger.dataset.filterColumn,trigger)}});
-    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0||e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(!cell)return;this.el.focus();const row=+cell.dataset.row,col=+cell.dataset.col;this.select(row,col,e.shiftKey);this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
+    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0||e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(!cell)return;this.el.focus({preventScroll:true});const row=+cell.dataset.row,col=+cell.dataset.col;this.select(row,col,e.shiftKey);this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
     this._listen(this.canvas,'pointermove',e=>{if(!this._selectDrag||e.pointerId!==this._selectDrag.pointerId)return;const p=this.getCellAtClient(e.clientX,e.clientY);this.select(p.row,p.col,true)});
     this._listen(this.canvas,'pointerup',e=>{if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
     this._listen(this.canvas,'pointercancel',e=>{if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
-    this._listen(this.canvas,'dblclick',e=>{const cell=e.target.closest('.tg-cell');if(cell)this.edit(+cell.dataset.row,+cell.dataset.col)});
+    this._listen(this.canvas,'dblclick',e=>{if(e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(cell)this.edit(+cell.dataset.row,+cell.dataset.col)});
     this._listen(this.fillHandle,'dblclick',e=>{e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
     this._listen(this.fillHandle,'keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
     this._listen(this.fillHandle,'pointerdown',e=>{if(this.readOnly)return;e.preventDefault();e.stopPropagation();this._fillState={source:{...this.selection},target:{...this.selection}};this.fillHandle.setPointerCapture(e.pointerId)});
     this._listen(this.fillHandle,'pointermove',e=>{if(!this._fillState)return;const p=this.getCellAtClient(e.clientX,e.clientY);this._fillState.target={r1:Math.min(this._fillState.source.r1,p.row),c1:Math.min(this._fillState.source.c1,p.col),r2:Math.max(this._fillState.source.r2,p.row),c2:Math.max(this._fillState.source.c2,p.col)};this.selection={...this._fillState.target};this.updateSelectionOverlay()});
     this._listen(this.fillHandle,'pointerup',e=>{if(!this._fillState)return;const {source,target}=this._fillState;this._fillState=null;const result=this._requestAutofill(source,target);if(result!==null){this.selection={...(result?target:source)};this.anchor={row:this.selection.r1,col:this.selection.c1};this.updateSelectionOverlay()}});
     this._listen(this.fillHandle,'pointercancel',()=>{if(!this._fillState)return;this.selection={...this._fillState.source};this._fillState=null;this.updateSelectionOverlay()});
-    const resize=(axis)=>e=>{if(this.readOnly)return;e.preventDefault();e.stopPropagation();const head=e.target.parentElement;const idx=+(axis==='x'?head.dataset.col:head.dataset.row);const start=axis==='x'?e.clientX:e.clientY;const size=axis==='x'?this.colWidths[idx]:this.rowHeights[idx];const move=ev=>{if(this.readOnly)return;const d=(axis==='x'?ev.clientX:ev.clientY)-start;axis==='x'?this.setColumnWidth(idx,size+d):this.setRowHeight(idx,size+d)};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up)};window.addEventListener('pointermove',move,{signal:this._abort.signal});window.addEventListener('pointerup',up,{signal:this._abort.signal})};
+    const resize=(axis)=>e=>{if(this.readOnly)return;this.beginHistory();e.preventDefault();e.stopPropagation();const head=e.target.parentElement;const idx=+(axis==='x'?head.dataset.col:head.dataset.row);const start=axis==='x'?e.clientX:e.clientY;const size=axis==='x'?this.colWidths[idx]:this.rowHeights[idx];const move=ev=>{if(this.readOnly)return;const d=(axis==='x'?ev.clientX:ev.clientY)-start;axis==='x'?this.setColumnWidth(idx,size+d):this.setRowHeight(idx,size+d)};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);this.endHistory()};window.addEventListener('pointercancel',up,{signal:this._abort.signal});window.addEventListener('pointermove',move,{signal:this._abort.signal});window.addEventListener('pointerup',up,{signal:this._abort.signal})};
     this._listen(this.colHeaders,'pointerdown',e=>{if(e.target.classList.contains('tg-resize-x'))resize('x')(e);else{const h=e.target.closest('.tg-colhead');if(h)this._setColumnSelection(+h.dataset.col)}});
     this._listen(this.rowHeaders,'pointerdown',e=>{if(e.target.classList.contains('tg-resize-y'))resize('y')(e);else{const h=e.target.closest('.tg-rowhead');if(h)this._setRowSelection(+h.dataset.row)}});
-    this._listen(this.editor,'keydown',e=>{if(e.key==='Enter'){e.preventDefault();this.commitEdit();this.select(Math.min(this.rowCount-1,this.anchor.row+1),this.anchor.col)}else if(e.key==='Escape'){e.preventDefault();this.commitEdit(true)}else if(e.key==='Tab'){e.preventDefault();this.commitEdit();this.select(this.anchor.row,Math.min(this.colCount-1,this.anchor.col+(e.shiftKey?-1:1)))}});
+    this._listen(this.editor,'keydown',e=>{if(e.key==='Enter'){e.preventDefault();if(this.commitEdit()===false)return;this.select(Math.min(this.rowCount-1,this.anchor.row+1),this.anchor.col)}else if(e.key==='Escape'){e.preventDefault();this.commitEdit(true)}else if(e.key==='Tab'){e.preventDefault();if(this.commitEdit()===false)return;this.select(this.anchor.row,Math.min(this.colCount-1,this.anchor.col+(e.shiftKey?-1:1)))}});
+    this._listen(this.editor,'input',()=>this.editor.setCustomValidity(''));
     this._listen(this.editor,'blur',()=>this.commitEdit());
-    this._listen(this.el,'keydown',async e=>{if(e.key==='Escape'&&!this.autofillMenu.hidden){e.preventDefault();this._closeAutofillMenu(true);return}if(e.key==='Escape'&&!this.filterMenu.hidden){e.preventDefault();this._closeFilterMenu();return}if(e.key==='Escape'&&!this.contextMenu.hidden){this._closeColumnMenu();return}if(this.contextMenu.contains(e.target)||this.filterMenu.contains(e.target)||this.autofillMenu.contains(e.target)||this._editing)return;const a=this.anchor;
+    this._listen(this.el,'keydown',async e=>{if(e.key==='Escape'&&!this.autofillMenu.hidden){e.preventDefault();this._closeAutofillMenu(true);return}if(e.key==='Escape'&&!this.filterMenu.hidden){e.preventDefault();this._closeFilterMenu();return}if(e.key==='Escape'&&!this.contextMenu.hidden){this._closeColumnMenu();return}if(this.contextMenu.contains(e.target)||this.filterMenu.contains(e.target)||this.autofillMenu.contains(e.target)||this._editing||e.target!==this.el)return;const a=this.anchor;
+      if(e.key===' '&&(e.shiftKey||e.ctrlKey||e.metaKey)){e.preventDefault();if(e.shiftKey)this._setRowSelection(a.row);else this._setColumnSelection(a.col);return}
+      if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();const row=this.selection.c1===0&&this.selection.c2===this.colCount-1,rect=this.selectionEl.getBoundingClientRect();this._contextMenuPoint={x:rect.left,y:rect.top};this._renderAxisMenu(row?'row':'column',row?a.row:a.col);return}
+      if(e.altKey&&e.key==='ArrowDown'){e.preventDefault();const trigger=this.canvas.querySelector(`[data-filter-column="${a.col}"]`);if(trigger)this._openFilterMenu(a.col,trigger);return}
+      if(e.key==='Home'||e.key==='End'){e.preventDefault();const end=e.key==='End',r=(e.ctrlKey||e.metaKey)?(end?this.getUsedRange().r2:0):a.row;this.select(r,end?this.getUsedRange().c2:0,e.shiftKey);return}
       if(this.readOnly&&(['Enter','F2','Backspace','Delete'].includes(e.key)||((e.metaKey||e.ctrlKey)&&['z','y','v'].includes(e.key.toLowerCase()))||(e.key.length===1&&!e.metaKey&&!e.ctrlKey&&!e.altKey))){e.preventDefault();return}
       if(e.key==='Enter'||e.key==='F2'){e.preventDefault();this.edit();return}
-      if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();const s=this.selection;if(this.sqlBinding){for(let r=Math.min(s.r1,s.r2);r<=Math.max(s.r1,s.r2);r++)for(let c=Math.min(s.c1,s.c2);c<=Math.max(s.c1,s.c2);c++)if(this.isCellReadOnly(r,c))return}this._recordHistory();for(let r=Math.min(s.r1,s.r2);r<=Math.max(s.r1,s.r2);r++)for(let c=Math.min(s.c1,s.c2);c<=Math.max(s.c1,s.c2);c++)this.cells.set(this.key(r,c),{...this.getCell(r,c),raw:''});this.engine.clearCache();this.renderCells();return}
+      if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();this.clearSelection();return}
       if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?this.redo():this.undo();return}
       if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='y'){e.preventDefault();this.redo();return}
       if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='c'){e.preventDefault();await navigator.clipboard?.writeText(this.copySelection());return}
       if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='v'){e.preventDefault();const t=await navigator.clipboard?.readText?.();if(t!=null)this.pasteText(t,a);return}
-      const arrows={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]};if(arrows[e.key]){e.preventDefault();const [dr,dc]=arrows[e.key];this.select(a.row+dr,a.col+dc,e.shiftKey);if(!e.shiftKey)this.anchor={row:clamp(a.row+dr,0,this.rowCount-1),col:clamp(a.col+dc,0,this.colCount-1)};return}
+      const arrows={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]};if(arrows[e.key]){e.preventDefault();const [dr,dc]=arrows[e.key];let row=(e.shiftKey?this.selection.r2:a.row)+dr,col=(e.shiftKey?this.selection.c2:a.col)+dc;while(dr&&row>=0&&row<this.rowCount&&!this.displayRowHeights[row])row+=dr;while(dc&&col>=0&&col<this.colCount&&!this.displayColWidths[col])col+=dc;if(row>=0&&row<this.rowCount&&col>=0&&col<this.colCount)this.select(row,col,e.shiftKey);return}
       if(e.key.length===1&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();this.edit(a.row,a.col,e.key)}
     });
   }
+}
+
+// Public mutations share one transaction boundary. Nested operations (imports,
+// SQL record deletion, autofit) become one undo step; rendering/events can run
+// during the operation, but the final history event fires only after completion.
+for(const name of [
+  'setValidationRules','setCell','setVariable','setSheetName','clearSelection','styleSelection','formatSelection',
+  'setRowHeight','setColumnWidth','hideRow','showAllRows','insertRow','deleteRow','clearRow','autoFitRow',
+  'hideColumn','showAllColumns','insertColumn','deleteColumn','clearColumn','autoFitColumn',
+  'load','loadRecords','loadResultSet','appendResultPage','insertRecord','deleteRecord',
+  '_importMatrix','importWorkbook','createTable','removeTable','setColumnFilter','clearFilters','sortTable',
+  'setFreezePanes','setConditionalFormats','fill','moveRange','pasteText'
+]){
+  const mutate=TinyDatagrid.prototype[name];
+  TinyDatagrid.prototype[name]=function(...args){return this.transaction(()=>mutate.apply(this,args))};
 }
 
 // Keep the original named export available for existing integrations.

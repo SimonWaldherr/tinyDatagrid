@@ -32,18 +32,56 @@ export type SQLPendingChanges = {
 };
 
 export type CellRange = { r1: number; c1: number; r2: number; c2: number };
-export type DelimitedImportOptions = { startRow?: number; startCol?: number; replace?: boolean; delimiter?: string; inferTypes?: boolean; locale?: string; headerRow?: number };
+/** Synchronous host-provided callback. Ranges arrive as two-dimensional arrays. */
+export type SpreadsheetFunction = (...args: any[]) => unknown;
+export type SpreadsheetFunctions = Record<string, SpreadsheetFunction>;
+export type TinyDatagridOptions = Record<string, unknown> & { functions?: SpreadsheetFunctions; historyLimit?: number; plugins?: GridPlugin[] };
+export type DateParsing = 'iso' | 'locale' | false;
+export type DelimitedImportOptions = { startRow?: number; startCol?: number; replace?: boolean; delimiter?: string; inferTypes?: boolean; locale?: string; dateParsing?: DateParsing; headerRow?: number };
+
+export interface GridPlugin<T = any> { name: string; setup(grid: TinyDatagrid): T & { destroy?: () => void }; }
+export type ConditionalRule = { range: CellRange; operator: 'eq'|'ne'|'gt'|'gte'|'lt'|'lte'|'between'|'contains'|'empty'|'notEmpty'; value?: unknown; max?: number; style: Partial<Pick<CSSStyleDeclaration,'backgroundColor'|'color'|'fontWeight'|'fontStyle'|'textDecoration'|'textAlign'>>; stopIfTrue?: boolean };
+export type ValidationRule = { range: CellRange; type: 'number'|'integer'|'list'|'textLength'; min?: number; max?: number; values?: Array<string|number|boolean>; allowEmpty?: boolean; allowFormula?: boolean; message?: string };
 
 export class TinyDatagrid {
-  constructor(container: string | Element, options?: Record<string, unknown>);
+  constructor(container: string | Element, options?: TinyDatagridOptions);
   [key: string]: any;
+  use(plugin: GridPlugin): this;
+  feature<T = any>(name: string): T | undefined;
+  removePlugin(name: string): boolean;
+  setFreezePanes(panes?: {rows?: number; columns?: number}): this;
+  setConditionalFormats(rules?: ConditionalRule[]): this;
+  setValidationRules(rules?: ValidationRule[]): this;
   readonly readOnly: boolean;
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
+  readonly historyState: { undo: number; redo: number };
+  undo(): boolean;
+  redo(): boolean;
+  clearHistory(): this;
+  /** Group synchronous edits into one undo step. Nested calls are supported. */
+  transaction<T>(callback: (grid: this) => T): T;
+  /** Begin a group spanning a pointer gesture; always balance with endHistory. */
+  beginHistory(): this;
+  endHistory(): this;
+  setSheetName(name: string): this;
+  clearSelection(): boolean;
+  /** Clear cached results, including random values, and refresh formulas and filters. */
+  recalculate(): this;
+  registerFunction(name: string, fn: SpreadsheetFunction): this;
+  registerFunctions(functions: SpreadsheetFunctions): this;
+  unregisterFunction(name: string): boolean;
   setReadOnly(readOnly?: boolean): this;
+  /** UI language and default number/date formatting locale. */
+  setLocale(locale?: string): this;
+  styleSelection(style?: Partial<CSSStyleDeclaration>): boolean;
+  createShareURL(baseURL?: string): string;
+  importShareHash(hash?: string): { cells: number; rows: number; columns: number };
   setVirtualization(enabled?: boolean): this;
   loadRecords(records: Record<string, unknown>[], options?: { headers?: string[]; includeHeaders?: boolean; startRow?: number; startCol?: number }): { rows: number; headers: string[] };
   importCSV(text: string, options?: DelimitedImportOptions): number;
   importDelimited(text: string, options?: DelimitedImportOptions): number;
-  importNDJSON(text: string, options?: { startRow?: number; startCol?: number; replace?: boolean; inferTypes?: boolean; locale?: string }): number;
+  importNDJSON(text: string, options?: { startRow?: number; startCol?: number; replace?: boolean; inferTypes?: boolean; locale?: string; dateParsing?: DateParsing }): number;
   importFile(file: File, options?: DelimitedImportOptions): Promise<unknown>;
   fill(source: CellRange, target: CellRange, options?: { mode?: 'series' | 'repeat' }): boolean;
   fillDownToContiguousData(source?: CellRange): boolean;
@@ -67,6 +105,12 @@ export function parseCSV(text: string, delimiter?: string): string[][];
 export function detectDelimiter(text: string): string;
 export function parseMarkdownTable(text: string): string[][];
 export function stringifyCSV(rows: unknown[][], delimiter?: string): string;
-export class FormulaEngine { constructor(grid: TinyDatagrid); evaluateFormula(formula: string): unknown; }
+export class FormulaEngine {
+  constructor(grid: TinyDatagrid);
+  registerFunction(name: string, fn: SpreadsheetFunction): this;
+  registerFunctions(functions: SpreadsheetFunctions): this;
+  unregisterFunction(name: string): boolean;
+  evaluateFormula(formula: string): unknown;
+}
 export class PivotEngine { static pivot(data: Record<string, unknown>[], config?: Record<string, unknown>): any; }
 export default TinyDatagrid;

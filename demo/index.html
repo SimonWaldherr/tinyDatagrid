@@ -1,135 +1,68 @@
 <!doctype html>
-<html lang="en">
+<html lang="de" data-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>tinyDatagrid demo</title>
+  <meta name="color-scheme" content="light dark">
+  <title>tinyDatagrid · Lagerübersicht</title>
   <link rel="stylesheet" href="../src/tinygrid.css">
-<style>
-    *{box-sizing:border-box}html,body{height:100%;margin:0;font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#202124;background:#eef1f5}.app{height:100%;display:grid;grid-template-rows:auto 1fr}.toolbar{display:flex;align-items:center;gap:7px;padding:9px 12px;background:#fff;border-bottom:1px solid #d9dde3;flex-wrap:wrap}.toolbar button,.toolbar input,.toolbar select{height:32px;border:1px solid #cbd1d8;border-radius:5px;background:#fff;color:inherit;font:inherit;padding:0 9px}.toolbar button{cursor:pointer}.toolbar button:hover:not(:disabled){border-color:#0a66ff;color:#0a66ff}.toolbar button:disabled{opacity:.45;cursor:default}.brand{font-weight:700;margin-right:4px}.name-box{width:76px;text-align:center;font-family:ui-monospace,monospace!important}.formula-input{flex:1;min-width:180px}.divider{height:22px;border-left:1px solid #dce0e5;margin:0 2px}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 330px;min-height:0}.sheet-area{display:grid;grid-template-rows:minmax(0,1fr) 30px;min-width:0;min-height:0;background:#fff}.sheet{min-width:0;min-height:0}.statusbar{display:flex;align-items:center;gap:18px;padding:0 12px;border-top:1px solid #d6dbe1;color:#59636e;font-size:12px}.side{padding:14px;overflow:auto;background:#fff;border-left:1px solid #d6dbe1}.side h3{margin:0 0 8px;font-size:14px}.side pre{white-space:pre-wrap;background:#f4f6f8;padding:10px;border-radius:6px;font-size:12px}.pivot{overflow:auto}.pivot table{border-collapse:collapse;width:100%;font-size:12px}.pivot th,.pivot td{border:1px solid #d6dbe1;padding:5px 7px;text-align:right}.pivot th:first-child,.pivot td:first-child{text-align:left}.hint{color:#66717e;font-size:12px}.pivot-controls{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:10px 0}.pivot-controls label{display:grid;gap:3px;color:#59636e;font-size:11px}.pivot-controls select{width:100%;height:30px;border:1px solid #cbd1d8;border-radius:4px;padding:0 6px;background:#fff;color:inherit;font:inherit}.pivot-chart{margin-top:12px;overflow:hidden}.pivot-chart svg{display:block;width:100%;height:auto;max-height:260px}.pivot-chart text{font:10px system-ui;fill:#59636e}@media(max-width:950px){.workspace{grid-template-columns:1fr}.side{display:none}}@media(max-width:600px){.toolbar{gap:5px;padding:7px}.brand{width:100%}.divider{display:none}.formula-input{min-width:125px}.statusbar{gap:10px;overflow:auto;white-space:nowrap}}
-  </style>
+  <link rel="stylesheet" href="./demo.css">
+  <script type="module" src="./demo.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#grid" data-i18n="skip">Zur Tabelle springen</a>
   <div class="app">
-    <div class="toolbar" role="toolbar" aria-label="Spreadsheet tools">
-      <strong class="brand">tinyDatagrid</strong>
-      <input id="nameBox" class="name-box" aria-label="Cell address" value="A1" title="Go to a cell (Enter)">
-      <span class="divider"></span>
-      <button id="undoBtn" title="Undo (Ctrl/Cmd+Z)" disabled>↶</button>
-      <button id="redoBtn" title="Redo (Ctrl/Cmd+Y)" disabled>↷</button>
-      <span class="divider"></span>
-      <button data-format="currency" title="Format as currency">€</button>
-      <button data-format="percent" title="Format as percentage">%</button>
-      <button data-format="number" title="Format as number">1,2</button>
-      <button data-format="general" title="Clear number format">General</button>
-      <span class="divider"></span>
-      <input id="formula" class="formula-input" aria-label="Formula bar" placeholder="Enter a value or formula">
-      <button id="pivotBtn">Pivot</button>
-      <button id="tableBtn" title="Den verwendeten Bereich als filterbare Tabelle formatieren">Tabelle</button>
-      <button id="importBtn">Import</button>
-      <button id="csvBtn">CSV</button>
-      <button id="tsvBtn">TSV</button>
-      <button id="htmlBtn">HTML</button>
-      <button id="markdownBtn">Markdown</button>
-      <button id="jsonBtn">JSON</button>
-      <button id="workbookBtn" title="Werte, Formeln, Formatierung und Tabellenlayout exportieren">Workbook</button>
-      <button id="shareBtn" title="Einen Link mit dem aktuellen Tabelleninhalt kopieren">Teilen</button>
-      <button id="readOnlyBtn" aria-pressed="false" title="Bearbeitung ein- oder ausschalten">Read-only: aus</button>
-      <input id="dataFile" type="file" accept=".csv,.tsv,.tab,.txt,.json,.ndjson,.jsonl,.html,.htm,.md,.markdown,.xml,.xls,text/csv,text/tab-separated-values,application/json,text/html,application/xml" hidden>
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4zM4 10h16M10 4v16" stroke="currentColor" stroke-width="2"/><path d="M14 14h3v3h-3z" fill="currentColor"/></svg></div>
+      <div class="document-heading"><div class="document-name"><input id="sheetName" maxlength="80" data-label="sheet" value="Lagerübersicht"><span class="file-badge">.grid</span></div><div class="document-meta"><strong>tinyDatagrid</strong><span class="dot"></span><span data-i18n="local">Lokal · ohne Cloud</span></div></div>
+      <div class="header-actions"><button id="importBtn" class="subtle" data-i18n="import">Importieren</button><button id="exportBtn" data-i18n="export">Exportieren</button><button id="shareBtn" class="primary"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 10h6m-6-4H5a4 4 0 0 0 0 8h2m6-8h2a4 4 0 0 1 0 8h-2"/></svg><span data-i18n="share">Teilen</span></button></div>
+    </header>
+    <div class="ribbon">
+      <div class="tab-line"><div class="ribbon-tabs" role="tablist" aria-label="Tools" data-label="tools"><button id="tab-home" role="tab" aria-selected="true" aria-controls="panel-home" data-i18n="home">Start</button><button id="tab-data" role="tab" aria-selected="false" aria-controls="panel-data" tabindex="-1" data-i18n="data">Daten</button><button id="tab-view" role="tab" aria-selected="false" aria-controls="panel-view" tabindex="-1" data-i18n="view">Ansicht</button></div><button id="helpBtn" class="help-button" data-i18n="help">Kurzhilfe</button></div>
+      <section id="panel-home" class="ribbon-panel" role="tabpanel" aria-labelledby="tab-home">
+        <div class="tool-group"><div class="tool-row"><button id="undoBtn" class="icon-button" data-label="undo" aria-keyshortcuts="Control+z Meta+z" disabled>↶<small id="undoCount" aria-hidden="true">0</small></button><button id="redoBtn" class="icon-button" data-label="redo" aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y" disabled>↷<small id="redoCount" aria-hidden="true">0</small></button></div><span class="group-label" data-i18n="history">Verlauf</span></div>
+        <div class="tool-group"><div class="tool-row"><button id="boldBtn" class="icon-button" data-label="bold" aria-pressed="false"><b>B</b></button><button id="italicBtn" class="icon-button" data-label="italic" aria-pressed="false"><i>I</i></button><button id="clearStyleBtn" class="icon-button" data-label="clearStyle">T̸</button></div><span class="group-label" data-i18n="font">Text</span></div>
+        <div class="tool-group"><div class="tool-row"><button data-align="left" class="icon-button" data-label="left" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h9M3 15h14"/></svg></button><button data-align="center" class="icon-button" data-label="center" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M6 10h8M3 15h14"/></svg></button><button data-align="right" class="icon-button" data-label="right" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M8 10h9M3 15h14"/></svg></button></div><span class="group-label" data-i18n="alignment">Ausrichtung</span></div>
+        <div class="tool-group"><div class="tool-row"><select id="numberFormat" data-label="number"><option value="general" data-i18n="general">Standard</option><option value="number" data-i18n="decimal">Zahl</option><option value="currency" data-i18n="currency">Währung (€)</option><option value="percent" data-i18n="percent">Prozent</option></select></div><span class="group-label" data-i18n="number">Zahlenformat</span></div>
+        <div class="tool-group"><div class="tool-row"><button id="sumBtn"><span aria-hidden="true" class="sigma">Σ</span><span data-i18n="autosum">AutoSumme</span></button><button id="recalculateBtn" data-i18n="recalculate" data-title="recalculateHint">Neu berechnen</button><button id="findBtn"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5"/><path d="m12 12 5 5"/></svg><span data-i18n="find">Suchen</span></button></div><span class="group-label" data-i18n="tools">Werkzeuge</span></div>
+      </section>
+      <section id="panel-data" class="ribbon-panel" role="tabpanel" aria-labelledby="tab-data" hidden>
+        <div class="tool-group"><div class="tool-row"><button id="tableBtn" data-i18n="table" data-title="tableHint">Als Tabelle</button></div><span class="group-label" data-i18n="data">Daten</span></div>
+        <div class="tool-group"><div class="tool-row"><button id="sortAscBtn"><span aria-hidden="true">A↓</span><span data-i18n="ascending">Aufsteigend</span></button><button id="sortDescBtn"><span aria-hidden="true">Z↓</span><span data-i18n="descending">Absteigend</span></button><button id="clearFiltersBtn" data-i18n="clearFilters">Filter löschen</button></div><span class="group-label" data-i18n="sorting">Sortieren & Filtern</span></div>
+        <div class="tool-group"><div class="tool-row"><button id="autoWidthBtn" data-i18n="autoWidth">Spaltenbreite anpassen</button><button id="unhideBtn" data-i18n="unhide">Alles einblenden</button></div><span class="group-label" data-i18n="layout">Layout</span></div>
+      </section>
+      <section id="panel-view" class="ribbon-panel" role="tabpanel" aria-labelledby="tab-view" hidden>
+        <div class="tool-group"><div class="tool-row"><button id="readOnlyBtn" aria-pressed="false" data-i18n="readOnly">Schreibschutz</button><button id="inspectorBtn" aria-expanded="true" aria-controls="inspector" data-i18n="inspector">Auswertung</button></div><span class="group-label" data-i18n="view">Ansicht</span></div>
+        <div class="tool-group"><label class="tool-row"><select id="theme" data-label="theme"><option value="system" data-i18n="system">System</option><option value="light" data-i18n="light">Hell</option><option value="dark" data-i18n="dark">Dunkel</option></select></label><span class="group-label" data-i18n="theme">Darstellung</span></div>
+        <div class="tool-group"><label class="tool-row"><select id="language" data-label="language"><option value="de">Deutsch</option><option value="en">English</option></select></label><span class="group-label" data-i18n="language">Sprache</span></div>
+      </section>
     </div>
-    <div class="workspace">
-      <main class="sheet-area">
-        <div id="grid" class="sheet"></div>
-        <div id="status" class="statusbar" aria-live="polite"><span>Ready</span></div>
-      </main>
-      <aside class="side">
-        <h3>Pivot-Auswertung</h3>
-        <div class="pivot-controls"><label>Zeilen<select id="pivotRows"></select></label><label>Spalten<select id="pivotColumns"></select></label><label>Werte<select id="pivotValues"></select></label><label>Berechnung<select id="pivotAggregate"><option value="sum">Summe</option><option value="count">Anzahl</option><option value="average">Mittelwert</option><option value="min">Minimum</option><option value="max">Maximum</option></select></label></div>
-        <p class="hint">Felder kombinieren, um die sichtbaren Tabellendaten auszuwerten.</p><div id="pivot" class="pivot">Pivot-Auswertung wird geladen …</div><div id="pivotChart" class="pivot-chart"></div>
-        <p class="hint">Import: CSV/TSV, TXT, JSON/NDJSON, HTML- und Markdown-Tabellen sowie SpreadsheetML XML. Das Workbook-JSON speichert Formeln, Layout, Tabellenstatus und vorbereitete Blattmetadaten.</p>
-        <h3 style="margin-top:18px">Formelbeispiele</h3>
-        <pre>=LET(wert; D2*F2; wert*1.19)
-=SUMIFS(G2:G10; B2:B10; "Sicherheit")
-=XLOOKUP("Handschuhe"; A2:A10; G2:G10; 0)
-=SUM(MAP(D2:D10; LAMBDA(x; x*2)))</pre>
-        <h3 style="margin-top:18px">Tastenkürzel</h3>
-        <pre>Enter / F2   Edit a cell
-Arrows       Move selection
-Shift+Arrows Extend selection
-Ctrl/Cmd+C   Copy as TSV
-Ctrl/Cmd+V   Paste TSV
-Ctrl/Cmd+Z   Undo
-Ctrl/Cmd+Y   Redo
-Read-only    Selection and copy only</pre>
-        <p class="hint">tinyDatagrid lässt sich ohne Framework einbetten. Daten kommen als Arrays, Records, CSV oder JSON hinein; Änderungen gehen über API und Events zurück in andere Tools.</p>
-      </aside>
-    </div>
+    <form id="formulaBar" class="formula-bar"><input id="nameBox" value="A1" data-label="address" autocomplete="off" spellcheck="false"><span class="formula-symbol" aria-hidden="true">ƒx</span><input id="formula" data-label="formula" data-placeholder="formulaPlaceholder" autocomplete="off" spellcheck="false"><button id="formulaCancel" class="icon-button" type="button" data-label="cancel">×</button><button id="formulaApply" class="icon-button" type="submit" data-label="apply">✓</button></form>
+    <form id="searchBar" class="search-bar" hidden><label for="search" data-i18n="find">Suchen</label><input id="search" type="search" data-placeholder="searchPlaceholder"><output id="searchResult" aria-live="polite"></output><button id="previousMatch" type="button" class="icon-button" data-label="previous">↑</button><button type="submit" class="icon-button" data-label="next">↓</button><button id="closeSearch" type="button" class="icon-button" data-label="close">×</button></form>
+    <main class="workspace" id="workspace"><section class="sheet-area" data-label="worksheet"><p id="gridInstructions" class="sr-only" data-i18n="gridHint"></p><div id="grid" aria-describedby="gridInstructions"></div><div class="sheet-strip"><span aria-hidden="true" class="sheet-symbol">▦</span><button id="sheetTab" class="sheet-tab" data-title="rename">Lagerübersicht</button><span class="sheet-dimensions" id="dimensions"></span><button id="sideToggle" class="subtle" aria-controls="inspector" aria-expanded="true" data-i18n="inspector">Auswertung</button></div></section>
+      <aside class="inspector" id="inspector" aria-labelledby="inspectorTitle"><div class="inspector-heading"><h2 id="inspectorTitle" data-i18n="inspector">Auswertung</h2><button id="closeInspector" class="icon-button" data-label="close">×</button></div><p class="eyebrow" data-i18n="overview">Auf einen Blick</p><div class="metrics"><div><strong id="recordCount">9</strong><span data-i18n="visibleRows">Sichtbare Datensätze</span></div><div><strong id="formulaCount">18</strong><span data-i18n="formulas">Formeln</span></div></div><div class="section-heading"><h3 data-i18n="pivot">Pivot-Auswertung</h3><span class="live-dot" aria-hidden="true"></span></div><p class="hint" data-i18n="pivotHint"></p><div class="pivot-controls"><label><span data-i18n="groupBy">Gruppieren nach</span><select id="pivotRows"></select></label><label><span data-i18n="columns">Spalten</span><select id="pivotColumns"></select></label><label><span data-i18n="values">Werte</span><select id="pivotValues"></select></label><label><span data-i18n="aggregate">Berechnung</span><select id="pivotAggregate"><option value="sum" data-i18n="sum">Summe</option><option value="count" data-i18n="count">Anzahl</option><option value="average" data-i18n="average">Mittelwert</option><option value="min" data-i18n="min">Minimum</option><option value="max" data-i18n="max">Maximum</option></select></label></div><div id="pivotChart" class="pivot-chart" aria-hidden="true"></div><div id="pivot" class="pivot"></div><div class="local-note"><span aria-hidden="true">◇</span><p data-i18n="offline"></p></div></aside>
+    </main>
+    <footer class="status-bar"><span class="ready-indicator" id="modeStatus"></span><span id="selectionStatus"></span><div id="statistics" class="statistics"></div></footer>
   </div>
-  <script type="module">
-    import TinyDatagrid, { parseA1, toA1 } from '../src/tinygrid.js';
-    const grid = new TinyDatagrid('#grid', { rows: 40, columns: 12, historyLimit: 100 });
-    const data = [
-      ['Artikel','Kategorie','Lagerort','Bestand','Mindestbestand','Einzelwert','Lagerwert','Status'],
-      ['Akkuschrauber','Werkzeug','Wallersdorf',8,5,89.9,'=D2*F2','=IF(D2<E2,"Nachbestellen","OK")'],
-      ['Schutzhelm','Sicherheit','Wallersdorf',3,4,42.5,'=D3*F3','=IF(D3<E3,"Nachbestellen","OK")'],
-      ['Warnweste','Sicherheit','Landau',24,10,8.9,'=D4*F4','=IF(D4<E4,"Nachbestellen","OK")'],
-      ['Ladegerät','Elektronik','Landau',6,4,34,'=D5*F5','=IF(D5<E5,"Nachbestellen","OK")'],
-      ['Erste-Hilfe-Set','Sicherheit','Wallersdorf',2,3,29.9,'=D6*F6','=IF(D6<E6,"Nachbestellen","OK")'],
-      ['Messgerät','Elektronik','Dingolfing',4,2,119,'=D7*F7','=IF(D7<E7,"Nachbestellen","OK")'],
-      ['Werkzeugkoffer','Werkzeug','Dingolfing',5,3,64.5,'=D8*F8','=IF(D8<E8,"Nachbestellen","OK")'],
-      ['Kabeltrommel','Elektronik','Landau',7,5,54.9,'=D9*F9','=IF(D9<E9,"Nachbestellen","OK")'],
-      ['Handschuhe','Sicherheit','Dingolfing',12,8,6.5,'=D10*F10','=IF(D10<E10,"Nachbestellen","OK")']
-    ];
-    let shared=false;
-    if(location.hash.startsWith('#tg1.')){try{grid.importShareHash();shared=true}catch(error){console.warn('Share-Link konnte nicht geladen werden:',error)}}
-    if(!shared){grid.load(data);grid.createTable({r1:0,c1:0,r2:9,c2:7},{headerRow:0});grid.setColumnWidth(0,150);grid.setColumnWidth(1,130);grid.setColumnWidth(2,135);grid.setColumnWidth(6,120);grid.setColumnWidth(7,145)}
-    const formula=document.querySelector('#formula'), nameBox=document.querySelector('#nameBox'), status=document.querySelector('#status');
-    function syncHistory(){document.querySelector('#undoBtn').disabled=grid.readOnly||!grid.canUndo;document.querySelector('#redoBtn').disabled=grid.readOnly||!grid.canRedo}
-    function syncSelection(){
-      const a=grid.anchor;nameBox.value=toA1(a.row,a.col);formula.value=grid.getRawValue(a.row,a.col);
-      const s=grid.selection,r1=Math.min(s.r1,s.r2),r2=Math.max(s.r1,s.r2),c1=Math.min(s.c1,s.c2),c2=Math.max(s.c1,s.c2);let nums=[],filled=0;
-      for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++){const v=grid.getComputedValue(r,c);if(v!==''&&v!=null)filled++;if(typeof v==='number'&&Number.isFinite(v))nums.push(v)}
-      const sum=nums.reduce((a,b)=>a+b,0),avg=nums.length?sum/nums.length:0;
-      status.replaceChildren(...[document.createTextNode(toA1(r1,c1)+' : '+toA1(r2,c2)),document.createTextNode('Anzahl '+filled),document.createTextNode('Summe '+sum.toLocaleString('de-DE')),document.createTextNode('Mittelwert '+avg.toLocaleString('de-DE'))]);
-      syncHistory();
-    }
-    grid.on('select',syncSelection);grid.on('change',syncSelection);grid.on('format',syncSelection);syncSelection();
-    grid.on('readonly',({readOnly})=>{document.querySelector('#readOnlyBtn').textContent='Read-only: '+(readOnly?'an':'aus');document.querySelector('#readOnlyBtn').setAttribute('aria-pressed',String(readOnly));formula.readOnly=readOnly;document.querySelector('#importBtn').disabled=readOnly;document.querySelectorAll('[data-format]').forEach(button=>button.disabled=readOnly);syncHistory()});
-    document.querySelector('#readOnlyBtn').onclick=()=>grid.setReadOnly(!grid.readOnly);
-    nameBox.addEventListener('keydown',e=>{if(e.key==='Enter'){const p=parseA1(nameBox.value);if(p){grid.goTo(p.row,p.col);grid.el.focus()}else nameBox.select()}});
-    formula.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();grid.setCell(grid.anchor.row,grid.anchor.col,formula.value);grid.el.focus()}});
-    document.querySelectorAll('[data-format]').forEach(button=>button.onclick=()=>grid.formatSelection(button.dataset.format==='general'?null:button.dataset.format));
-    document.querySelector('#undoBtn').onclick=()=>grid.undo();document.querySelector('#redoBtn').onclick=()=>grid.redo();
-    const pivotRows=document.querySelector('#pivotRows'),pivotColumns=document.querySelector('#pivotColumns'),pivotValues=document.querySelector('#pivotValues');
-    function refreshPivotFields(){
-      const t=grid.table;if(!t)return;const fields=[];for(let c=t.c1;c<=t.c2;c++)fields.push(String(grid.getComputedValue(t.headerRow,c)||`Spalte ${c+1}`));
-      const fill=(select,allowNone=false)=>{const previous=select.value;select.replaceChildren();if(allowNone){const none=document.createElement('option');none.value='';none.textContent='(keine)';select.append(none)}fields.forEach(field=>{const option=document.createElement('option');option.value=field;option.textContent=field;select.append(option)});if(fields.includes(previous)||allowNone&&previous==='')select.value=previous};
-      fill(pivotRows);fill(pivotColumns,true);fill(pivotValues);if(fields.includes('Kategorie'))pivotRows.value='Kategorie';if(fields.includes('Lagerort'))pivotColumns.value='Lagerort';if(fields.includes('Bestand'))pivotValues.value='Bestand';
-    }
-    function renderPivot(){
-      if(!grid.table)return;const rowField=pivotRows.value,valueField=pivotValues.value;if(!rowField||!valueField)return;
-      const config={rows:[rowField],columns:pivotColumns.value?[pivotColumns.value]:[],values:[{field:valueField,aggregate:document.querySelector('#pivotAggregate').value,as:valueField}]};
-      const pivot=grid.pivot(config),rows=pivot.toTable(),table=document.createElement('table');
-      rows.forEach((row,i)=>{const tr=document.createElement('tr');row.forEach(value=>{const cell=document.createElement(i?'td':'th');cell.textContent=value==null?'':typeof value==='number'?value.toLocaleString('de-DE',{maximumFractionDigits:2}):String(value);tr.append(cell)});table.append(tr)});document.querySelector('#pivot').replaceChildren(table);
-      const chart=document.querySelector('#pivotChart');chart.replaceChildren();const chartRows=rows.slice(1),valueIndex=1,values=chartRows.map(row=>Number(row[valueIndex])).filter(Number.isFinite);if(!chartRows.length||!values.length)return;
-      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),max=Math.max(1,...values),barHeight=24,gap=7,left=95,width=290,height=chartRows.length*(barHeight+gap)+8;svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.setAttribute('role','img');svg.setAttribute('aria-label',`${valueField} nach ${rowField}`);
-      chartRows.forEach((row,index)=>{const y=5+index*(barHeight+gap),label=document.createElementNS(svg.namespaceURI,'text');label.setAttribute('x','0');label.setAttribute('y',String(y+16));label.textContent=String(row[0]??'');svg.append(label);const rect=document.createElementNS(svg.namespaceURI,'rect');rect.setAttribute('x',String(left));rect.setAttribute('y',String(y));rect.setAttribute('width',String(Math.max(2,(Number(row[valueIndex])||0)/max*(width-left-38))));rect.setAttribute('height',String(barHeight));rect.setAttribute('rx','3');rect.setAttribute('fill','#4385f5');svg.append(rect);const amount=document.createElementNS(svg.namespaceURI,'text');amount.setAttribute('x',String(width-32));amount.setAttribute('y',String(y+16));amount.textContent=(Number(row[valueIndex])||0).toLocaleString('de-DE',{maximumFractionDigits:1});svg.append(amount)});chart.append(svg);
-    }
-    refreshPivotFields();renderPivot();
-    document.querySelector('#pivotBtn').onclick=renderPivot;
-    document.querySelector('#tableBtn').onclick=()=>{const range=grid.getUsedRange();grid.createTable(range,{headerRow:range.r1});refreshPivotFields();renderPivot()};
-    [pivotRows,pivotColumns,pivotValues,document.querySelector('#pivotAggregate')].forEach(select=>select.addEventListener('change',renderPivot));
-    grid.on('change',()=>{refreshPivotFields();renderPivot()});grid.on('filter',renderPivot);grid.on('sort',renderPivot);grid.on('table',()=>{refreshPivotFields();renderPivot()});
-    function download(name,content,type){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-    document.querySelector('#csvBtn').onclick=()=>download('tiny-datagrid.csv',grid.exportCSV(),'text/csv;charset=utf-8');
-    document.querySelector('#tsvBtn').onclick=()=>download('tiny-datagrid.tsv',grid.exportTSV(),'text/tab-separated-values;charset=utf-8');
-    document.querySelector('#htmlBtn').onclick=()=>download('tiny-datagrid.html',grid.exportHTML(),'text/html;charset=utf-8');
-    document.querySelector('#markdownBtn').onclick=()=>download('tiny-datagrid.md',grid.exportMarkdown(),'text/markdown;charset=utf-8');
-    document.querySelector('#jsonBtn').onclick=()=>download('tiny-datagrid.json',JSON.stringify(grid.exportJSON(),null,2),'application/json');
-    document.querySelector('#workbookBtn').onclick=()=>download('tiny-datagrid-workbook.json',JSON.stringify(grid.exportWorkbook(),null,2),'application/json');
-    document.querySelector('#shareBtn').onclick=async()=>{try{const url=grid.createShareURL();await navigator.clipboard.writeText(url);status.replaceChildren(document.createTextNode('Share-Link in die Zwischenablage kopiert.'))}catch(error){status.replaceChildren(document.createTextNode('Link konnte nicht kopiert werden: '+error.message))}};
-    const file=document.querySelector('#dataFile');document.querySelector('#importBtn').onclick=()=>{if(!grid.readOnly)file.click()};
-    file.onchange=async()=>{const f=file.files?.[0];if(!f)return;try{if(grid.readOnly)throw new Error('Im Read-only-Modus ist Import deaktiviert.');await grid.importFile(f);const range=grid.getUsedRange();grid.createTable(range,{headerRow:range.r1});refreshPivotFields();renderPivot();status.replaceChildren(document.createTextNode('Importiert: '+f.name))}catch(error){status.replaceChildren(document.createTextNode('Importfehler: '+error.message))}finally{file.value=''}};
-  </script>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <dialog id="exportDialog" aria-labelledby="exportTitle"><form method="dialog"><div class="dialog-heading"><h2 id="exportTitle" data-i18n="exportTitle"></h2><button class="icon-button" data-label="close">×</button></div></form><p data-i18n="exportHint"></p><label class="stack"><span data-i18n="format"></span><select id="exportFormat"><option value="workbook">Workbook (.json)</option><option value="csv">CSV</option><option value="tsv">TSV</option><option value="json">JSON</option><option value="html">HTML</option><option value="markdown">Markdown</option></select></label><div class="dialog-actions"><button id="downloadBtn" class="primary" data-i18n="download"></button></div></dialog>
+  <dialog id="shareDialog" aria-labelledby="shareTitle"><form method="dialog"><div class="dialog-heading"><h2 id="shareTitle" data-i18n="shareTitle"></h2><button class="icon-button" data-label="close">×</button></div></form><p data-i18n="shareHint"></p><textarea id="shareURL" rows="4" readonly data-label="shareURL"></textarea><p id="shareFeedback" role="status"></p><div class="dialog-actions"><button id="copyLinkBtn" class="primary" data-i18n="copy"></button></div></dialog>
+  <dialog id="importDialog" aria-labelledby="importTitle"><form method="dialog"><div class="dialog-heading"><h2 id="importTitle" data-i18n="importTitle"></h2><button class="icon-button" data-label="close">×</button></div></form><p data-i18n="importHint"></p><p class="hint" data-i18n="replaceFormats"></p><div class="dialog-actions"><button id="chooseFileBtn" class="primary" data-i18n="chooseFile"></button></div></dialog>
+  <dialog id="helpDialog" aria-labelledby="helpTitle"><form method="dialog"><div class="dialog-heading"><h2 id="helpTitle" data-i18n="helpTitle"></h2><button class="icon-button" data-label="close">×</button></div></form><dl class="shortcuts"><dt data-i18n="helpEdit"></dt><dd><kbd>Enter</kbd> / <kbd>F2</kbd></dd><dt data-i18n="helpSelect"></dt><dd><kbd>Shift + ← ↑ ↓ →</kbd></dd><dt data-i18n="helpFilter"></dt><dd><kbd>Alt + ↓</kbd></dd><dt data-i18n="helpFind"></dt><dd><kbd>Ctrl / ⌘ + F</kbd></dd><dt data-i18n="helpUndo"></dt><dd class="history-shortcuts"><kbd>Ctrl / ⌘ + Z</kbd><kbd>Ctrl / ⌘ + Shift + Z</kbd><kbd>Ctrl + Y</kbd></dd><dt data-i18n="helpLeave"></dt><dd><kbd>Tab</kbd></dd></dl><p data-i18n="helpFormula"></p><pre>=SUM(D2:D10)
+=IF(D2&lt;E2; "⚠"; "✓")
+=AVERAGE(F2:F10)
+=LTRIM("  MARCH1")</pre><h3 data-i18n="textFunctions"></h3><p data-i18n="textHint"></p><pre>=UPPER(TRIM("  hello  "))
+=SUBSTR("abcdef"; 2; 3)
+=REGEXP("MARCH1"; "^[A-Z]+[0-9]+$")
+=REGEXP_EXTRACT("item-123"; "([0-9]+)"; 1)
+=REGEXP_REPLACE("a   b"; " +"; " ")
+=PADSTART("42"; 5; "0")</pre><h3 data-i18n="extendedFunctions"></h3><p data-i18n="extendedHint"></p><pre>=GEO.DISTANCE(48.137; 11.575; 52.520; 13.405; "km")
+=GEOM.CIRCLE.AREA(5)
+=GEOM.DISTANCE(0; 0; 3; 4)
+=HASH.SHA256("hello")
+=RANDOM.INT(1; 6)
+=RANDOM.SEEDED("demo"; 1)
+=SIN(RADIANS(30))</pre><p><a href="../docs/functions.md" target="_blank" rel="noopener" data-i18n="functionReference"></a></p></dialog>
+  <input id="dataFile" type="file" accept=".csv,.tsv,.tab,.txt,.json,.ndjson,.jsonl,.html,.htm,.md,.markdown,.xml,.xls" hidden>
 </body>
 </html>

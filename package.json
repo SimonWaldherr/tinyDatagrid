@@ -19,15 +19,31 @@
     "./style.css": {
       "types": "./src/style.d.ts",
       "default": "./src/tinygrid.css"
+    },
+    "./features": {
+      "types": "./src/features.d.ts",
+      "import": "./src/features.js"
+    },
+    "./worksheets": {
+      "types": "./src/worksheets.d.ts",
+      "import": "./src/worksheets.js"
+    },
+    "./indexeddb": {
+      "types": "./src/indexeddb.d.ts",
+      "import": "./src/indexeddb.js"
     }
   },
   "files": [
     "src",
     "README.md",
+    "docs",
     "LICENSE"
   ],
-  "sideEffects": ["**/*.css"],
+  "sideEffects": [
+    "**/*.css"
+  ],
   "scripts": {
-    "test": "node test.mjs"
+    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs",
+    "benchmark": "node benchmarks/recalculation.mjs"
   }
 }

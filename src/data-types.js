@@ -76,33 +76,46 @@ function parseNumberText(input, locale) {
   };
 }
 
-function parseDateText(input, locale) {
-  const text = String(input).trim();
-  let match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
-  if (match) {
-    const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
-    const date = new Date(0);
-    date.setHours(0, 0, 0, 0);
-    date.setFullYear(year, month - 1, day);
-    if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) return { type: 'date', value: date };
-    return null;
-  }
-  if (/^\d{4}-\d\d-\d\d[Tt ]/.test(text)) {
-    const time = Date.parse(text);
-    if (Number.isFinite(time)) return { type: 'datetime', value: new Date(time) };
-    return null;
-  }
-  match = /^(\d{1,2})([./-])(\d{1,2})\2(\d{4})$/.exec(text);
+/** Calendar dates and ISO timestamps only; never guess month names or repair invalid days. */
+function parseISODateText(text) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[Tt](\d{2}):(\d{2})(?::(\d{2})([.,]\d+)?)?([Zz]|[+-]\d{2}:?\d{2})?)?$/.exec(text);
   if (!match) return null;
-  let [, first, , second, yearText] = match;
-  let day = Number(first), month = Number(second), year = Number(yearText);
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction, zone] = match;
+  const year = Number(yearText), month = Number(monthText), day = Number(dayText);
+  const calendar = new Date(0);
+  calendar.setUTCFullYear(year, month - 1, day);
+  if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== day) return null;
+  if (hourText == null) {
+    const date = new Date(0);date.setHours(0, 0, 0, 0);date.setFullYear(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+    return { type: 'date', value: date };
+  }
+  const hour = Number(hourText), minute = Number(minuteText), second = Number(secondText || 0);
+  if (hour > 24 || minute > 59 || second > 59 || (hour === 24 && (minute || second || Number(fraction?.replace(',', '.') || 0)))) return null;
+  if (zone && zone.toUpperCase() !== 'Z') {
+    const offset = zone.slice(1).replace(':', '');
+    if (Number(offset.slice(0, 2)) > 23 || Number(offset.slice(2)) > 59) return null;
+  }
+  const normalizedZone = !zone ? '' : zone.toUpperCase() === 'Z' ? 'Z' : zone.includes(':') ? zone : `${zone.slice(0, 3)}:${zone.slice(3)}`;
+  const timestamp = Date.parse(`${yearText}-${monthText}-${dayText}T${hourText}:${minuteText}:${secondText || '00'}${fraction?.replace(',', '.') || ''}${normalizedZone}`);
+  return Number.isFinite(timestamp) ? { type: 'datetime', value: new Date(timestamp) } : null;
+}
+
+function parseDateText(input, locale, dateParsing = 'iso') {
+  if (dateParsing === false) return null;
+  const text = String(input).trim(), iso = parseISODateText(text);
+  if (iso || dateParsing !== 'locale') return iso;
+  // Locale-specific forms are only enabled by an explicit opt-in or a date column type.
+  if (/^\d{4}-\d{2}-\d{2} /.test(text)) return parseISODateText(text.replace(' ', 'T'));
+  const match = /^(\d{1,2})([./-])(\d{1,2})\2(\d{4})$/.exec(text);
+  if (!match) return null;
+  const [, first, separator, second, yearText] = match;
+  let day = Number(first), month = Number(second);const year = Number(yearText);
   const language = getDataLocale(locale).toLowerCase();
   const usOrder = language.startsWith('en-us') || language.startsWith('en-ca') || language.startsWith('ja');
-  if (match[2] === '/' && Number(first) <= 12 && Number(second) <= 12 && usOrder) { month = Number(first); day = Number(second); }
-  else if (match[2] === '/' && Number(first) <= 12 && Number(second) > 12) { month = Number(first); day = Number(second); }
-  const date = new Date(0);
-  date.setHours(0, 0, 0, 0);
-  date.setFullYear(year, month - 1, day);
+  if (separator === '/' && Number(first) <= 12 && Number(second) <= 12 && usOrder) { month = Number(first); day = Number(second); }
+  else if (separator === '/' && Number(first) <= 12 && Number(second) > 12) { month = Number(first); day = Number(second); }
+  const date = new Date(0);date.setHours(0, 0, 0, 0);date.setFullYear(year, month - 1, day);
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
   return { type: 'date', value: date };
 }
@@ -118,7 +131,8 @@ function parseStructuredText(value) {
 }
 
 /** Identify and convert a single imported value without coercing ambiguous identifiers. */
-export function inferDataValue(input, { locale } = {}) {
+export function inferDataValue(input, { locale, dateParsing = 'iso' } = {}) {
+  if (![false, 'iso', 'locale'].includes(dateParsing)) throw new TypeError('dateParsing must be iso, locale, or false');
   if (input == null) return { type: 'null', value: input };
   if (typeof input === 'boolean') return { type: 'boolean', value: input };
   if (typeof input === 'bigint') return { type: 'integer', value: input };
@@ -131,7 +145,7 @@ export function inferDataValue(input, { locale } = {}) {
   if (!trimmed) return { type: 'empty', value: input };
   const boolean = BOOLEAN_VALUES.get(trimmed.toLocaleLowerCase());
   if (boolean !== undefined) return { type: 'boolean', value: boolean };
-  const date = parseDateText(trimmed, locale);
+  const date = parseDateText(trimmed, locale, dateParsing);
   if (date) return date;
   const structured = parseStructuredText(trimmed);
   if (structured) return structured;
@@ -175,12 +189,10 @@ export function coerceDataValue(input, { type = 'unknown', locale } = {}) {
     const parsed = parseNumberText(input, locale);
     return parsed && ['integer', 'number'].includes(parsed.type) ? Number(parsed.value) : input;
   }
-  if (/^(date)$/.test(base)) return parseDateText(input, locale)?.value ?? input;
+  if (/^(date)$/.test(base)) return parseDateText(input, locale, 'locale')?.value ?? input;
   if (/^(datetime|timestamp|timestamptz|timestamp with time zone|timestamp without time zone|smalldatetime)$/.test(base)) {
-    const parsed = parseDateText(input, locale);
-    if (parsed) return parsed.value;
-    const timestamp = Date.parse(input);
-    return Number.isFinite(timestamp) ? new Date(timestamp) : input;
+    const parsed = parseDateText(input, locale, 'locale');
+    return parsed?.value ?? input;
   }
   if (/^(json|jsonb|object|array)$/.test(base)) return parseStructuredText(input)?.value ?? input;
   return input;
@@ -190,23 +202,25 @@ function identifierHeader(header) {
   const original = String(header ?? '').trim();
   const normalized = original.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
   const compact = normalized.replaceAll('_', '');
-  if (/^(id|uuid|guid|code|sku|zip|zipcode|postalcode|postcode|phone|phonenumber|telephone|mobile|iban|accountnumber|serialnumber|trackingnumber)$/.test(compact)) return true;
+  if (/^(gene|geneid|genesymbol|id|uuid|guid|code|sku|zip|zipcode|postalcode|postcode|phone|phonenumber|telephone|mobile|iban|accountnumber|serialnumber|trackingnumber)$/.test(compact)) return true;
   return /(?:^|[_\s-])(id|uuid|guid|code|sku|zip|postcode|postal_code|phone|telephone|mobile|iban|account_number|serial_number|tracking_number)$/.test(original.toLowerCase()) || /(?:Id|ID|UUID|GUID|SKU|IBAN)$/.test(original);
 }
 
 /** Parse delimited text values and retain format hints for percentages and currencies. */
-export function inferDelimitedRows(rows, { locale, headerRow = 0 } = {}) {
+export function inferDelimitedRows(rows, { locale, dateParsing = 'iso', headerRow = 0 } = {}) {
   const result = rows.map(row => [...row]);
-  const formats = new Map();
+  const formats = new Map(), textCells = new Set();
   const width = Math.max(0, ...rows.map(row => row.length));
   for (let col = 0; col < width; col++) {
     const header = Number.isInteger(headerRow) && rows[headerRow] ? rows[headerRow][col] : null;
-    if (identifierHeader(header)) continue;
+    const identifier = identifierHeader(header);
     for (let row = 0; row < rows.length; row++) {
-      const info = inferDataValue(rows[row][col], { locale });
+      if (row === headerRow || identifier) { if (typeof rows[row][col] === 'string') textCells.add(`${row},${col}`); continue; }
+      const info = inferDataValue(rows[row][col], { locale, dateParsing });
       result[row][col] = info.value;
+      if (info.type === 'text' || info.type === 'empty') textCells.add(`${row},${col}`);
       if (info.format) formats.set(`${row},${col}`, info.format);
     }
   }
-  return { rows: result, formats };
+  return { rows: result, formats, textCells };
 }

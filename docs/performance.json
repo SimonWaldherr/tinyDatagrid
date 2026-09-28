@@ -1,0 +1,30 @@
+{
+  "date": "2026-09-28T20:23:56.109Z",
+  "node": "v26.10.0",
+  "cpu": "Apple M2 Max",
+  "scope": "Headless calculation; no DOM/layout. Each row: input A, TICK(A*2) in B, B+1 in C.",
+  "runs": [
+    {
+      "rows": 10000,
+      "cells": 30000,
+      "coldMs": 46.875833,
+      "incrementalMs": 1.9992079999999959,
+      "fullMs": 37.120750000000015,
+      "incrementalCalls": 1,
+      "fullCalls": 10000,
+      "withHistoryMs": 15.726207999999986,
+      "historyPatches": 1
+    },
+    {
+      "rows": 50000,
+      "cells": 150000,
+      "coldMs": 203.32429199999999,
+      "incrementalMs": 8.493999999999971,
+      "fullMs": 192.59695899999997,
+      "incrementalCalls": 1,
+      "fullCalls": 50000,
+      "withHistoryMs": 95.82150000000001,
+      "historyPatches": 1
+    }
+  ]
+}
