@@ -60,6 +60,8 @@ Supported functions cover math and statistics, logic, criteria-based aggregation
 
 Use `exportCSV()`, `exportTSV()`, `exportJSON()`, or `exportWorkbook()` as needed. Workbook JSON preserves formulas, values, formatting, dimensions, hidden rows and columns, table/filter state, variables, and sheet metadata. Freeze-pane and conditional-format rules are stored as metadata; their UI behavior is not implemented.
 
+Create a self-contained share link with `grid.createShareURL()` and restore it with `grid.importShareHash()`. The versioned `#tg1.` URL hash contains the workbook as URL-safe Base64-encoded JSON, so no server storage is involved. Share links include the complete workbook and can become long for large datasets.
+
 ## API overview
 
 Common methods include:
@@ -71,6 +73,7 @@ grid.loadRecords(records, { headers: ['id', 'name'] });
 grid.createTable({ r1: 0, c1: 0, r2: 20, c2: 3 }, { headerRow: 0 });
 grid.setVirtualization(true);
 grid.setReadOnly(true);
+const shareURL = grid.createShareURL();
 grid.undo();
 grid.redo();
 grid.destroy();

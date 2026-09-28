@@ -33,6 +33,7 @@
       <button id="markdownBtn">Markdown</button>
       <button id="jsonBtn">JSON</button>
       <button id="workbookBtn" title="Werte, Formeln, Formatierung und Tabellenlayout exportieren">Workbook</button>
+      <button id="shareBtn" title="Einen Link mit dem aktuellen Tabelleninhalt kopieren">Teilen</button>
       <button id="readOnlyBtn" aria-pressed="false" title="Bearbeitung ein- oder ausschalten">Read-only: aus</button>
       <input id="dataFile" type="file" accept=".csv,.tsv,.tab,.txt,.json,.ndjson,.jsonl,.html,.htm,.md,.markdown,.xml,.xls,text/csv,text/tab-separated-values,application/json,text/html,application/xml" hidden>
     </div>
@@ -79,7 +80,9 @@ Read-only    Selection and copy only</pre>
       ['Kabeltrommel','Elektronik','Landau',7,5,54.9,'=D9*F9','=IF(D9<E9,"Nachbestellen","OK")'],
       ['Handschuhe','Sicherheit','Dingolfing',12,8,6.5,'=D10*F10','=IF(D10<E10,"Nachbestellen","OK")']
     ];
-    grid.load(data); grid.createTable({r1:0,c1:0,r2:9,c2:7},{headerRow:0}); grid.setColumnWidth(0,150); grid.setColumnWidth(1,130); grid.setColumnWidth(2,135); grid.setColumnWidth(6,120); grid.setColumnWidth(7,145);
+    let shared=false;
+    if(location.hash.startsWith('#tg1.')){try{grid.importShareHash();shared=true}catch(error){console.warn('Share-Link konnte nicht geladen werden:',error)}}
+    if(!shared){grid.load(data);grid.createTable({r1:0,c1:0,r2:9,c2:7},{headerRow:0});grid.setColumnWidth(0,150);grid.setColumnWidth(1,130);grid.setColumnWidth(2,135);grid.setColumnWidth(6,120);grid.setColumnWidth(7,145)}
     const formula=document.querySelector('#formula'), nameBox=document.querySelector('#nameBox'), status=document.querySelector('#status');
     function syncHistory(){document.querySelector('#undoBtn').disabled=grid.readOnly||!grid.canUndo;document.querySelector('#redoBtn').disabled=grid.readOnly||!grid.canRedo}
     function syncSelection(){
@@ -124,6 +127,7 @@ Read-only    Selection and copy only</pre>
     document.querySelector('#markdownBtn').onclick=()=>download('tiny-datagrid.md',grid.exportMarkdown(),'text/markdown;charset=utf-8');
     document.querySelector('#jsonBtn').onclick=()=>download('tiny-datagrid.json',JSON.stringify(grid.exportJSON(),null,2),'application/json');
     document.querySelector('#workbookBtn').onclick=()=>download('tiny-datagrid-workbook.json',JSON.stringify(grid.exportWorkbook(),null,2),'application/json');
+    document.querySelector('#shareBtn').onclick=async()=>{try{const url=grid.createShareURL();await navigator.clipboard.writeText(url);status.replaceChildren(document.createTextNode('Share-Link in die Zwischenablage kopiert.'))}catch(error){status.replaceChildren(document.createTextNode('Link konnte nicht kopiert werden: '+error.message))}};
     const file=document.querySelector('#dataFile');document.querySelector('#importBtn').onclick=()=>{if(!grid.readOnly)file.click()};
     file.onchange=async()=>{const f=file.files?.[0];if(!f)return;try{if(grid.readOnly)throw new Error('Im Read-only-Modus ist Import deaktiviert.');await grid.importFile(f);const range=grid.getUsedRange();grid.createTable(range,{headerRow:range.r1});refreshPivotFields();renderPivot();status.replaceChildren(document.createTextNode('Importiert: '+f.name))}catch(error){status.replaceChildren(document.createTextNode('Importfehler: '+error.message))}finally{file.value=''}};
   </script>

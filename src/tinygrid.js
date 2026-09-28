@@ -10,6 +10,17 @@ const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 function toPortableValue(value){if(value instanceof Date)return {$tinyDatagridType:'date',value:value.toISOString()};if(typeof value==='bigint')return {$tinyDatagridType:'bigint',value:String(value)};if(value instanceof ArrayBuffer)return {$tinyDatagridType:'binary',value:[...new Uint8Array(value)]};if(ArrayBuffer.isView(value))return {$tinyDatagridType:'binary',value:[...new Uint8Array(value.buffer,value.byteOffset,value.byteLength)]};if(Array.isArray(value))return value.map(toPortableValue);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,toPortableValue(item)]));return value}
 function fromPortableValue(value){if(Array.isArray(value))return value.map(fromPortableValue);if(value&&typeof value==='object'){if(value.$tinyDatagridType==='date'&&typeof value.value==='string')return new Date(value.value);if(value.$tinyDatagridType==='bigint'&&typeof value.value==='string')return BigInt(value.value);if(value.$tinyDatagridType==='binary'&&Array.isArray(value.value))return Uint8Array.from(value.value);return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,fromPortableValue(item)]))}return value}
 function cursorKey(value){try{return JSON.stringify(toPortableValue(value))??String(value)}catch{return String(value)}}
+const SHARE_HASH_PREFIX='tg1.';
+function encodeSharePayload(value){
+  const bytes=new TextEncoder().encode(JSON.stringify(value)),binary=Array.from(bytes,byte=>String.fromCharCode(byte)).join('');
+  return SHARE_HASH_PREFIX+btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
+}
+function decodeSharePayload(hash){
+  const encoded=String(hash??'').replace(/^#/,'');if(!encoded.startsWith(SHARE_HASH_PREFIX))throw new TypeError('URL does not contain a tinyDatagrid share link');
+  const base64=encoded.slice(SHARE_HASH_PREFIX.length).replaceAll('-','+').replaceAll('_','/');
+  const binary=atob(base64.padEnd(Math.ceil(base64.length/4)*4,'=')),bytes=Uint8Array.from(binary,char=>char.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
 function resultHasMore(result){return result?.hasMore==null?result?.nextCursor!=null:Boolean(result.hasMore)}
 function upperBound(values,target){let low=0,high=values.length;while(low<high){const middle=(low+high)>>1;if(values[middle]<=target)low=middle+1;else high=middle}return low}
 
@@ -618,6 +629,13 @@ export class TinyDatagrid {
     if(dims)workbook.dimensions=dims;
     return workbook;
   }
+  /** Create a self-contained URL that restores this workbook from its hash. */
+  createShareURL(baseURL=globalThis.location?.href){
+    if(!baseURL)throw new TypeError('A base URL is required outside a browser');
+    const url=new URL(baseURL);url.hash=encodeSharePayload(this.exportWorkbook());return url.toString();
+  }
+  /** Restore a workbook encoded in a tinyDatagrid share URL hash. */
+  importShareHash(hash=globalThis.location?.hash){return this.importWorkbook(decodeSharePayload(hash),{replace:true})}
   importWorkbook(input,{replace=true,startRow=0,startCol=0,values=true,formulas=true,formatting=true,dimensions=true}={}){
     const workbook=typeof input==='string'?JSON.parse(input):input;
     if(!workbook||workbook.format!=='tinyDatagrid-workbook')throw new TypeError('Workbook JSON must use the tinyDatagrid-workbook format');
@@ -944,7 +962,7 @@ export class TinyDatagrid {
     this._listen(this.autofillMenu,'focusout',e=>{if(!this.autofillMenu.hidden&&!this.autofillMenu.contains(e.relatedTarget))this._closeAutofillMenu(true)});
     const filterInput=e=>{if(e.target.matches('.tg-filter-search')){const query=e.target.value.toLocaleLowerCase();this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{box.closest('.tg-filter-option').hidden=!box.dataset.filterValue.toLocaleLowerCase().includes(query)})}else if(e.target.matches('[data-select-all]'))this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{if(!box.closest('.tg-filter-option').hidden)box.checked=e.target.checked})};this._listen(this.filterMenu,'input',filterInput);this._listen(this.filterMenu,'change',filterInput);
     this._listen(this.canvas,'click',e=>{const trigger=e.target.closest('.tg-filter-trigger');if(trigger){e.preventDefault();e.stopPropagation();this._openFilterMenu(+trigger.dataset.filterColumn,trigger)}});
-    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0)return;const cell=e.target.closest('.tg-cell');if(!cell)return;this.el.focus();const row=+cell.dataset.row,col=+cell.dataset.col;this.select(row,col,e.shiftKey);this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
+    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0||e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(!cell)return;this.el.focus();const row=+cell.dataset.row,col=+cell.dataset.col;this.select(row,col,e.shiftKey);this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
     this._listen(this.canvas,'pointermove',e=>{if(!this._selectDrag||e.pointerId!==this._selectDrag.pointerId)return;const p=this.getCellAtClient(e.clientX,e.clientY);this.select(p.row,p.col,true)});
     this._listen(this.canvas,'pointerup',e=>{if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
     this._listen(this.canvas,'pointercancel',e=>{if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
