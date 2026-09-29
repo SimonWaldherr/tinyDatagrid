@@ -101,6 +101,28 @@ SIN/COS/TAN|radians|Sinus, Kosinus bzw. Tangens; Winkel in Bogenmaß.|Sine, cosi
 ASIN/ACOS/ATAN|number|Inverse Winkelfunktion; Ergebnis in Bogenmaß.|Inverse trigonometric function; result in radians.
 ATAN2|y; x|Richtung in Bogenmaß; y steht vor x.|Direction in radians; y precedes x.
 HYPOT|numbers…|Euklidische Norm der Komponenten.|Euclidean norm of the components.
+JSON.PARSE|text|Wandelt JSON-Text in ein JSON-Objekt, -Array oder einen Wert um.|Parses JSON text into an object, array or scalar.
+JSON.STRINGIFY|value; indent=0|Serialisiert einen Wert oder Bereich als JSON-Text.|Serializes a value or range as JSON text.
+JSON.VALID|text|Prüft, ob Text gültiges JSON ist.|Checks whether text is valid JSON.
+JSON.TYPE|json; path?|Typ: object, array, string, number, boolean oder null.|Type: object, array, string, number, boolean or null.
+JSON.GET|json; path; default?|Liest per Pfad (a.b[0], $..id, [?(@.x>1)]); über Bereiche zeilenweise.|Reads by path (a.b[0], $..id, [?(@.x>1)]); works row by row over ranges.
+JSON.HAS|json; path|Prüft, ob ein Pfad existiert.|Checks whether a path exists.
+JSON.KEYS|json; path?|Schlüssel eines Objekts (bzw. Indizes eines Arrays) als Spalte.|Object keys (or array indexes) as a column.
+JSON.VALUES|json; path?|Werte eines Objekts oder Arrays als Spalte.|Values of an object or array as a column.
+JSON.ENTRIES|json; path?|Schlüssel/Wert-Paare als zweispaltige Tabelle.|Key/value pairs as a two-column table.
+JSON.LENGTH|json; path?|Anzahl der Elemente, Schlüssel oder Zeichen.|Number of elements, keys or characters.
+JSON.SET|json; path; value; …|Kopie mit gesetzten Werten; fehlende Pfade werden angelegt.|Copy with values set; missing paths are created.
+JSON.REMOVE|json; path; …|Kopie ohne die angegebenen Pfade.|Copy without the given paths.
+JSON.MERGE|json; json; …|Führt Objekte rekursiv zusammen; Arrays werden ersetzt.|Deep-merges objects; arrays are replaced.
+JSON.OBJECT|key; value; …|Baut ein Objekt aus Schlüssel/Wert-Paaren oder einem Bereich.|Builds an object from key/value pairs or a range.
+JSON.ARRAY|values…|Baut ein Array aus Werten und Bereichen.|Builds an array from values and ranges.
+JSON.CONCAT|array; more…|Hängt Arrays und Werte aneinander.|Concatenates arrays and values.
+JSON.LOOKUP|value; array; key_path; result_path?; not_found?|Findet ein Element über einen Schlüsselwert (wie XLOOKUP).|Finds an element by key value (like XLOOKUP).
+JSON.SORT|array; path?; order=1|Sortiert ein Array stabil, optional nach Pfad.|Stable sort of an array, optionally by path.
+JSON.UNIQUE|array; path?|Entfernt doppelte Elemente.|Removes duplicate elements.
+JSON.TABLE|json; columns?; header=TRUE; flatten=FALSE|Array von Objekten als Tabelle; füllt mehrere Zellen.|Array of objects as a table; spills across cells.
+JSON.FROMTABLE|range; header=TRUE|Bereich als Array von Objekten (Kopfzeile = Schlüssel).|Range as an array of objects (header row = keys).
+JSON.FLATTEN|json; max_depth?|Alle Blattwerte als Pfad/Wert-Tabelle.|All leaf values as a path/value table.
 `;
 const catalog=new Map();
 for(const row of rows.trim().split('\n')){const [names,args,de,en]=row.split('|');for(const name of names.split('/'))catalog.set(name,{name,signature:`${name}(${args})`,de,en})}

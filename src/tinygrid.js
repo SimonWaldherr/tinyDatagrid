@@ -8,6 +8,8 @@ import { inferColumnType, coerceDataValue, inferDelimitedRows, inferDataValue } 
 import { createLookupFunctions } from './lookups.js';
 import { createExtendedFunctions } from './extended-functions.js';
 import { createTextFunctions } from './text-functions.js';
+import { createJsonFunctions } from './json-functions.js';
+import { JSONValue, wrapCellValue, wrapResult, unwrapCellValue, rawText, jsonEquals, flattenValues, rowsOf } from './json-values.js';
 import { translate } from './i18n.js';
 import { difference, applyDifference } from './history.js';
 import { Dependencies, CellMap } from './dependencies.js';
@@ -15,7 +17,7 @@ import { references, followsMove, containsReference } from './references.js';
 let gridSequence=0;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-function toPortableValue(value){if(value instanceof Date)return {$tinyDatagridType:'date',value:value.toISOString()};if(typeof value==='bigint')return {$tinyDatagridType:'bigint',value:String(value)};if(value instanceof ArrayBuffer)return {$tinyDatagridType:'binary',value:[...new Uint8Array(value)]};if(ArrayBuffer.isView(value))return {$tinyDatagridType:'binary',value:[...new Uint8Array(value.buffer,value.byteOffset,value.byteLength)]};if(Array.isArray(value))return value.map(toPortableValue);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,toPortableValue(item)]));return value}
+function toPortableValue(value){if(value instanceof JSONValue)return toPortableValue(value.value);if(value instanceof Date)return {$tinyDatagridType:'date',value:value.toISOString()};if(typeof value==='bigint')return {$tinyDatagridType:'bigint',value:String(value)};if(value instanceof ArrayBuffer)return {$tinyDatagridType:'binary',value:[...new Uint8Array(value)]};if(ArrayBuffer.isView(value))return {$tinyDatagridType:'binary',value:[...new Uint8Array(value.buffer,value.byteOffset,value.byteLength)]};if(Array.isArray(value))return value.map(toPortableValue);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,toPortableValue(item)]));return value}
 export function fromPortableValue(value){if(Array.isArray(value))return value.map(fromPortableValue);if(value&&typeof value==='object'){if(value.$tinyDatagridType==='date'&&typeof value.value==='string')return new Date(value.value);if(value.$tinyDatagridType==='bigint'&&typeof value.value==='string')return BigInt(value.value);if(value.$tinyDatagridType==='binary'&&Array.isArray(value.value))return Uint8Array.from(value.value);return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,fromPortableValue(item)]))}return value}
 function cursorKey(value){try{return JSON.stringify(toPortableValue(value))??String(value)}catch{return String(value)}}
 const SHARE_HASH_PREFIX='tg1.';
@@ -101,7 +103,7 @@ function importMarkupTable(markup,selector='table') {
 
 export function stringifyCSV(rows, delimiter = ',') {
   return rows.map(row => row.map(value => {
-    const text = value == null ? '' : value instanceof Date ? value.toISOString() : String(value);
+    const text = rawText(value);
     return /["\r\n]/.test(text) || text.includes(delimiter) ? `"${text.replaceAll('"', '""')}"` : text;
   }).join(delimiter)).join('\r\n');
 }
@@ -113,10 +115,10 @@ function normalizeRange(a, b) {
   };
 }
 
-function flatten(v) {
-  if (Array.isArray(v)) return v.flat(Infinity);
-  return [v];
-}
+// List context: ranges flatten deeply and JSON arrays contribute their elements.
+const flatten = flattenValues;
+// Structural view for error scans: JSON contents are data, never formula errors.
+const flattenPlain = v => Array.isArray(v) ? v.flat(Infinity) : [v];
 
 const asNumber = formulaNumber;
 
@@ -135,7 +137,50 @@ function criteriaMatches(value, criteria) {
   return false;
 }
 
-function normalizedRows(value) { return Array.isArray(value) ? (Array.isArray(value[0]) ? value : value.map(v=>[v])) : [[value]]; }
+const normalizedRows = rowsOf;
+/** Element-wise evaluation over ranges. Size-1 dimensions stretch; other mismatches yield #N/A. */
+function broadcast(values, fn) {
+  const matrices = values.map(value => Array.isArray(value) ? rowsOf(value) : null);
+  const shapes = matrices.map(matrix => matrix ? [matrix.length, Math.max(1, ...matrix.map(line => line.length))] : [1, 1]);
+  const height = Math.max(...shapes.map(shape => shape[0])), width = Math.max(...shapes.map(shape => shape[1]));
+  if (height * width > 100000) throw new RangeError('Array too large');
+  return Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => {
+    const items = [];
+    for (let k = 0; k < values.length; k++) {
+      const matrix = matrices[k];
+      if (!matrix) { items.push(values[k]); continue; }
+      const [h, w] = shapes[k], ii = h === 1 ? 0 : i, jj = w === 1 ? 0 : j;
+      if (ii >= h || jj >= w) return '#N/A';
+      items.push(matrix[ii][jj] ?? '');
+    }
+    return fn(...items);
+  }));
+}
+const elementError = error => error instanceof RangeError ? '#NUM!' : '#VALUE!';
+// Scalar functions that map over ranges (=UPPER(A1:A9), =JSON.GET(A1:A9; "id")).
+const LIFTED = new Set(['ABS','ROUND','ROUNDUP','ROUNDDOWN','FLOOR','CEIL','INT','SQRT','POW','POWER','MOD','SIGN','EXP','LN','LOG','NOT','ISBLANK','ISNUMBER','ISTEXT','ISLOGICAL','N','VALUE','LEN','UPPER','LOWER','PROPER','LEFT','RIGHT','MID','FIND','SEARCH','SUBSTITUTE','REPLACE','TEXT','YEAR','MONTH','DAY','HOUR','MINUTE','SECOND','DATE','DATEVALUE','DAYS',
+  'TRIM','LTRIM','RTRIM','SQUEEZE','SUBSTR','SUBSTRING','REVERSE','REPEAT','STARTSWITH','ENDSWITH','CONTAINS','REPLACEALL','PADSTART','PADEND','REGEXP','REGEXTEST','REGEXMATCH','REGEXP_EXTRACT','REGEXEXTRACT','REGEXP_REPLACE','REGEXREPLACE',
+  'RADIANS','DEGREES','SIN','COS','TAN','ASIN','ACOS','ATAN','ATAN2','GEO.DISTANCE','GEO.BEARING','GEOM.DISTANCE','GEOM.CIRCLE.AREA','GEOM.CIRCLE.CIRCUMFERENCE','GEOM.RECTANGLE.AREA','GEOM.TRIANGLE.AREA','GEOM.SPHERE.VOLUME','GEOM.SPHERE.AREA','HASH.SHA256','HASH.FNV1A','HASH.CRC32',
+  'JSON.PARSE','JSON.GET','JSON.HAS','JSON.TYPE','JSON.VALID','JSON.LENGTH']);
+
+/** Text matcher shared by find() and replace(). */
+function textMatcher(query, { matchCase = false, wholeCell = false, regex = false } = {}) {
+  const text = String(query ?? '');
+  if (text === '') return null;
+  if (text.length > 500) throw new RangeError('Search text is too long');
+  let source = regex ? text : text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (wholeCell) source = `^(?:${source})$`;
+  const flags = 'u' + (matchCase ? '' : 'i');
+  const probe = new RegExp(source, flags), global = new RegExp(source, flags + 'g');
+  return {
+    test: value => probe.test(value),
+    replace(value, replacement) {
+      const matches = value.match(global);
+      if (!matches) return { text: value, count: 0 };
+      return { text: regex ? value.replace(global, replacement) : value.replace(global, () => replacement), count: matches.length };
+    }
+  };
+}
 
 class FormulaTokenizer {
   constructor(input) { this.s = input; this.i = 0; this.tokens = []; }
@@ -146,6 +191,7 @@ class FormulaTokenizer {
       if (c === '"') { this.tokens.push(this.readString()); continue; }
       if(c==="'"){this.i++;let name='',closed=false;while(this.i<this.s.length){const ch=this.s[this.i++];if(ch==="'"){if(this.s[this.i]==="'"){name+="'";this.i++;continue}closed=true;break}name+=ch}if(!closed)throw new Error('Unclosed sheet name');this.tokens.push({type:'sheet',value:name});continue}
       if(c==='!'){this.tokens.push({type:'!',value:c});this.i++;continue;}
+      if(c==='#'){this.tokens.push({type:'#',value:c});this.i++;continue;}
       if (/[0-9.]/.test(c)) { this.tokens.push(this.readNumber()); continue; }
       if (/[A-Za-z_@$]/.test(c)) { this.tokens.push(this.readIdent()); continue; }
       const two = this.s.slice(this.i, this.i + 2);
@@ -214,7 +260,7 @@ class FormulaParser {
         }
         this.take(')');
         left = {type:'call', name:t.value.toUpperCase(), args};
-      } else left = {type:'ident', name:t.value};
+      } else { left = {type:'ident', name:t.value}; if (this.peek('#') && parseA1(t.value)) { this.i++; left = {type:'spillref', target:left}; } }
     } else throw new Error(`Unexpected token ${t.value || t.type}`);
 
     while (true) {
@@ -291,6 +337,7 @@ export class FormulaEngine {
       ...createLookupFunctions(),
       ...createExtendedFunctions(),
       ...createTextFunctions(),
+      ...createJsonFunctions(),
       FILTER:(array,include,ifEmpty='')=>{const rows=normalizedRows(array),mask=flatten(include);const out=rows.filter((_,i)=>Boolean(mask[i]));return out.length?out:ifEmpty},
       UNIQUE:array=>{const rows=normalizedRows(array),seen=new Set();return rows.filter(row=>{const k=JSON.stringify(row);if(seen.has(k))return false;seen.add(k);return true})},
       SORT:(array,index=1,order=1)=>{const rows=normalizedRows(array),col=Math.max(0,Math.trunc(asNumber(index))-1),direction=asNumber(order)<0?-1:1;return [...rows].sort((a,b)=>{const x=a[col],y=b[col];return (typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''),undefined,{numeric:true,sensitivity:'base'}))*direction})},
@@ -333,7 +380,7 @@ export class FormulaEngine {
     this.clearCache();return true;
   }
   _callCustomFunction(name,args) {
-    const error=args.flatMap(flatten).find(isFormulaError);if(error)return error;
+    const error=args.flatMap(flattenPlain).find(isFormulaError);if(error)return error;
     return this._invokeFunction(this.functions[name],args);
   }
   _invokeFunction(fn,args) {
@@ -343,10 +390,88 @@ export class FormulaEngine {
         Promise.resolve(result).catch(()=>{});
         return '#ERROR! Custom formula functions must return synchronously';
       }
-      return checkedResult(result);
+      return wrapResult(checkedResult(result));
     } catch(error) { return error instanceof RangeError?'#NUM!':error instanceof TypeError?'#VALUE!':`#ERROR! ${error instanceof Error?error.message:String(error)}`; }
   }
   clearCache() { this.dependencies.clear(); }
+  // ---- dynamic arrays -------------------------------------------------------
+  // A formula that returns a range of more than one cell fills the cells to its
+  // right and below (its spill). Only the top-left value belongs to the formula
+  // cell itself; the rest are read-only results, registered in dependencies.spills.
+  cellChanged(key) {
+    const dep=this.dependencies;if(!dep.spills.size&&!dep.blocked.size)return;
+    const skip=new Set(dep.stack),origin=dep.covered.get(this.grid._calculationKey(key));
+    if(origin)dep.invalidate(origin,skip);
+    if(dep.blocked.size){const [row,col]=key.split(',').map(Number);for(const [name,info] of dep.blocked)if(info.owner===this.grid&&row>=info.row&&row<info.row+info.rows&&col>=info.col&&col<info.col+info.cols)dep.invalidate(name,skip)}
+  }
+  /** Evaluate cells invalidated since the last read so spill ranges are known before any value is returned. */
+  settle() {
+    const dep=this.dependencies,grid=this.grid;
+    if(this._settling||dep.stack.length||(!dep.dirtyAll&&!dep.dirty.size)||typeof grid._ownKey!=='function')return;
+    this._settling=true;
+    try{
+      const isFormula=raw=>typeof raw==='string'&&raw.startsWith('=');
+      for(let pass=0;pass<8;pass++){
+        const all=dep.dirtyAll,keys=all?null:[...dep.dirty];dep.dirtyAll=false;dep.dirty.clear();
+        const visit=key=>{const split=key.indexOf(',');grid.getComputedValue(+key.slice(0,split),+key.slice(split+1))};
+        if(all){for(const [key,cell] of grid.cells)if(isFormula(cell.raw)&&!this.cache.has(grid._calculationKey(key)))visit(key)}
+        else for(const calc of keys){const key=grid._ownKey(calc);if(key==null)continue;if(isFormula(grid.cells.get(key)?.raw)||dep.spills.has(calc)||dep.blocked.has(calc))visit(key)}
+        if(!dep.dirtyAll&&!dep.dirty.size)break;
+      }
+    }finally{this._settling=false}
+    grid._growForSpills?.();
+  }
+  _spillKeys(info,each){for(let r=info.row;r<info.row+info.rows;r++)for(let c=info.col;c<info.col+info.cols;c++)if(r!==info.row||c!==info.col)each(this.grid._calculationKey(this.grid.key(r,c)),r,c)}
+  clearSpill(origin) {
+    const dep=this.dependencies,old=dep.spills.get(origin);dep.blocked.delete(origin);
+    if(!old)return;
+    const skip=new Set(dep.stack);dep.spills.delete(origin);
+    this._spillKeys(old,key=>{if(dep.covered.get(key)===origin){dep.covered.delete(key);dep.invalidate(key,skip)}});
+    this._retryBlocked(old,skip);
+  }
+  /** Freed cells may let a blocked spill succeed: send blocked origins that touch the area back for re-evaluation. */
+  _retryBlocked(area,skip) {
+    const dep=this.dependencies;
+    for(const [name,info] of dep.blocked)if(info.owner===this.grid&&info.row<area.row+area.rows&&area.row<info.row+info.rows&&info.col<area.col+area.cols&&area.col<info.col+info.cols)dep.invalidate(name,skip);
+  }
+  _blocker(origin,fp) {
+    const dep=this.dependencies,grid=this.grid,area=fp.rows*fp.cols;
+    const inside=(r,c)=>r>=fp.row&&r<fp.row+fp.rows&&c>=fp.col&&c<fp.col+fp.cols&&(r!==fp.row||c!==fp.col);
+    const filled=cell=>cell&&cell.raw!==''&&cell.raw!=null;
+    if(area<=grid.cells.size){for(let r=fp.row;r<fp.row+fp.rows;r++)for(let c=fp.col;c<fp.col+fp.cols;c++)if((r!==fp.row||c!==fp.col)&&filled(grid.cells.get(grid.key(r,c))))return `Blocked by ${toA1(r,c)}`}
+    else for(const [key,cell] of grid.cells){if(!filled(cell))continue;const [r,c]=key.split(',').map(Number);if(inside(r,c))return `Blocked by ${toA1(r,c)}`}
+    for(const [name,other] of dep.spills){
+      if(name===origin||other.owner!==grid)continue;
+      const overlap=other.row<fp.row+fp.rows&&fp.row<other.row+other.rows&&other.col<fp.col+fp.cols&&fp.col<other.col+other.cols;
+      // The spill that starts first (row-major) keeps the cells.
+      if(overlap&&(other.row<fp.row||(other.row===fp.row&&other.col<fp.col)))return `Overlaps ${toA1(other.row,other.col)}`;
+    }
+    return null;
+  }
+  spillResult(origin,row,col,result) {
+    const dep=this.dependencies,grid=this.grid,matrix=rowsOf(result).map(line=>line.slice());
+    const rows=matrix.length,cols=matrix.reduce((n,line)=>Math.max(n,line.length),0);
+    if(!rows||!cols){this.clearSpill(origin);return ''}
+    if(rows*cols===1){this.clearSpill(origin);return matrix[0][0]}
+    for(const line of matrix)while(line.length<cols)line.push('');
+    const info={row,col,rows,cols,matrix,owner:grid},limit=grid.options?.maxSpillCells??100000;
+    const problem=rows*cols>limit?'Result too large':this._blocker(origin,info);
+    if(problem){this.clearSpill(origin);dep.blocked.set(origin,{...info,matrix:null,message:problem});return `#SPILL! ${problem}`}
+    const old=dep.spills.get(origin);dep.blocked.delete(origin);
+    const same=old&&old.row===row&&old.col===col&&old.rows===rows&&old.cols===cols;
+    dep.spills.set(origin,info);
+    if(!same){
+      const skip=new Set(dep.stack),keep=new Set();
+      this._spillKeys(info,(key)=>{keep.add(key);if(dep.covered.get(key)!==origin){const previous=dep.covered.get(key);dep.covered.set(key,origin);dep.invalidate(key,skip);if(previous&&previous!==origin)dep.invalidate(previous,skip)}});
+      if(old){this._spillKeys(old,key=>{if(!keep.has(key)&&dep.covered.get(key)===origin){dep.covered.delete(key);dep.invalidate(key,skip)}});this._retryBlocked(old,skip)}
+      // Later overlapping spills must re-evaluate and yield.
+      for(const [name,other] of dep.spills){
+        if(name===origin||other.owner!==grid)continue;
+        if(other.row<row+rows&&row<other.row+other.rows&&other.col<col+cols&&col<other.col+other.cols)dep.invalidate(name,skip);
+      }
+    }
+    return matrix[0][0];
+  }
   evaluateFormula(formula, visiting = new Set()) {
     try {
       const tokens = new FormulaTokenizer(formula.replace(/^=/,'')).tokenize();
@@ -354,10 +479,32 @@ export class FormulaEngine {
       return checkedResult(this.evalNode(ast, visiting));
     } catch (e) { return e instanceof RangeError?'#NUM!':e instanceof TypeError?'#VALUE!':`#ERROR! ${e.message}`; }
   }
+  applyBinary(op,a,b) {
+        if(isFormulaError(a))return a;if(isFormulaError(b))return b;
+        if(a instanceof JSONValue||b instanceof JSONValue){
+          if(['=','==','<>','!='].includes(op)){const same=a instanceof JSONValue&&b instanceof JSONValue&&jsonEquals(a.value,b.value);return op==='='||op==='=='?same:!same}
+          if(['<','>','<=','>='].includes(op)){const x=String(a??''),y=String(b??'');return op==='<'?x<y:op==='>'?x>y:op==='<='?x<=y:x>=y}
+        }
+        if(['=','==','<>','!=','<','>','<=','>='].includes(op)){
+          const convert=(text,other)=>{
+            if(typeof text!=='string'||!['number','bigint'].includes(typeof other))return text;
+            const parsed=parseNumericValue(text);if(parsed.lossy)throw new RangeError('Comparison would lose precision');
+            return parsed.numeric?parsed.value:text;
+          };
+          a=convert(a,b);b=convert(b,a);
+        }
+        switch(op){
+          case '+': return formulaNumber(formulaNumber(a)+formulaNumber(b)); case '-': return formulaNumber(formulaNumber(a)-formulaNumber(b));
+          case '*': return formulaNumber(formulaNumber(a)*formulaNumber(b)); case '/': return formulaNumber(b)===0?'#DIV/0!':formulaNumber(formulaNumber(a)/formulaNumber(b));
+          case '%': return formulaNumber(formulaNumber(a)%formulaNumber(b)); case '^': return formulaNumber(Math.pow(formulaNumber(a),formulaNumber(b))); case '&': return String(a??'')+String(b??'');
+          case '=': case '==': return a==b; case '<>': case '!=': return a!=b; case '<': return a<b; case '>': return a>b; case '<=': return a<=b; case '>=': return a>=b;
+        }
+  }
   evalNode(n, visiting) {
     switch (n.type) {
       case 'literal': return n.value;
       case 'sheetref':{const sheets=this.grid.feature?.('worksheets');return sheets?sheets.read(n.sheet,parseA1(n.name),visiting):'#REF!'}
+      case 'spillref':{const p=parseA1(n.target.name);return this.grid.getSpill?this.grid.getSpill(p.row,p.col,visiting):this.grid.getComputedValue(p.row,p.col,visiting)}
       case 'ident': {
         const upper = n.name.toUpperCase();
         if (upper === 'TRUE'||upper==='WAHR') return true;
@@ -389,29 +536,17 @@ export class FormulaEngine {
         for(let r=rr.r1;r<=rr.r2;r++){const row=[];for(let c=rr.c1;c<=rr.c2;c++)row.push(leftSheet?(sheets?sheets.read(leftSheet,{row:r,col:c},visiting):'#REF!'):this.grid.getComputedValue(r,c,visiting));out.push(row)}
         return out;
       }
-      case 'unary': { const raw=this.evalNode(n.expr,visiting);if(isFormulaError(raw))return raw;const v=formulaNumber(raw); return n.op==='-'?-v:v; }
+      case 'unary': { const raw=this.evalNode(n.expr,visiting);if(isFormulaError(raw))return raw;if(Array.isArray(raw))return broadcast([raw],x=>{if(isFormulaError(x))return x;try{const v=formulaNumber(x);return n.op==='-'?-v:v}catch(error){return elementError(error)}});const v=formulaNumber(raw); return n.op==='-'?-v:v; }
       case 'binary': {
-        let a=this.evalNode(n.left,visiting), b=this.evalNode(n.right,visiting);
-        if(isFormulaError(a))return a;if(isFormulaError(b))return b;
-        if(['=','==','<>','!=','<','>','<=','>='].includes(n.op)){
-          const convert=(text,other)=>{
-            if(typeof text!=='string'||!['number','bigint'].includes(typeof other))return text;
-            const parsed=parseNumericValue(text);if(parsed.lossy)throw new RangeError('Comparison would lose precision');
-            return parsed.numeric?parsed.value:text;
-          };
-          a=convert(a,b);b=convert(b,a);
-        }
-        switch(n.op){
-          case '+': return formulaNumber(formulaNumber(a)+formulaNumber(b)); case '-': return formulaNumber(formulaNumber(a)-formulaNumber(b));
-          case '*': return formulaNumber(formulaNumber(a)*formulaNumber(b)); case '/': return formulaNumber(b)===0?'#DIV/0!':formulaNumber(formulaNumber(a)/formulaNumber(b));
-          case '%': return formulaNumber(formulaNumber(a)%formulaNumber(b)); case '^': return formulaNumber(Math.pow(formulaNumber(a),formulaNumber(b))); case '&': return String(a??'')+String(b??'');
-          case '=': case '==': return a==b; case '<>': case '!=': return a!=b; case '<': return a<b; case '>': return a>b; case '<=': return a<=b; case '>=': return a>=b;
-        }
+        const a=this.evalNode(n.left,visiting), b=this.evalNode(n.right,visiting);
+        if(Array.isArray(a)||Array.isArray(b))return broadcast([a,b],(x,y)=>{try{return this.applyBinary(n.op,x,y)}catch(error){return elementError(error)}});
+        return this.applyBinary(n.op,a,b);
       }
       case 'call': {
         if(this._customFunctions.has(n.name))return this._callCustomFunction(n.name,n.args.map(arg=>this.evalNode(arg,visiting)));
         if(n.name==='IF'){
           if(n.args.length<2||n.args.length>3)return '#VALUE!';const condition=this.evalNode(n.args[0],visiting);if(isFormulaError(condition))return condition;
+          if(Array.isArray(condition)){const yes=this.evalNode(n.args[1],visiting),no=n.args.length===3?this.evalNode(n.args[2],visiting):false;return broadcast([condition,yes,no],(test,a,b)=>isFormulaError(test)?test:test?a:b)}
           if(condition)return this.evalNode(n.args[1],visiting);return n.args.length===3?this.evalNode(n.args[2],visiting):false;
         }
         if(n.name==='IFERROR'||n.name==='IFNA'){
@@ -447,10 +582,11 @@ export class FormulaEngine {
         }
         const fn=this.functions[n.name]; if(!fn) return `#NAME? ${n.name}`;
         const args=n.args.map(x=>this.evalNode(x,visiting));
+        if(LIFTED.has(n.name)&&args.some(Array.isArray))return broadcast(args,(...items)=>{const error=items.find(isFormulaError);return error??this._invokeFunction(fn,items)});
         const lookupFunctions=['MATCH','XMATCH','VLOOKUP','HLOOKUP','XLOOKUP','LOOKUP','SVERWEIS','WVERWEIS','XVERWEIS','VERGLEICH','VERWEIS'];
         const toleratesErrors=['COUNT','COUNTA','COUNTBLANK','COUNTIF','COUNTIFS'];
         if(lookupFunctions.includes(n.name)){if(isFormulaError(args[0]))return args[0]}
-        else if(!toleratesErrors.includes(n.name)){const error=args.flatMap(flatten).find(isFormulaError);if(error)return error}
+        else if(!toleratesErrors.includes(n.name)){const error=args.flatMap(flattenPlain).find(isFormulaError);if(error)return error}
         return this._invokeFunction(fn,args);
       }
     }
@@ -580,6 +716,40 @@ export class TinyDatagrid {
     if(cols>this.colCount){while(this.colWidths.length<cols)this.colWidths.push(this.options.columnWidth);this.colCount=cols;changed=true}
     return changed;
   }
+  /** Cells whose content ('formulas'), result ('values') or either ('both') match the query, in reading order. */
+  find(query,{matchCase=false,wholeCell=false,regex=false,scope='both',range=null,visibleOnly=false,limit=100000}={}){
+    const matcher=textMatcher(query,{matchCase,wholeCell,regex});if(!matcher)return [];
+    const box=range&&{r1:Math.min(range.r1,range.r2),r2:Math.max(range.r1,range.r2),c1:Math.min(range.c1,range.c2),c2:Math.max(range.c1,range.c2)};
+    const found=[],visited=new Set();
+    const consider=(row,col)=>{
+      const key=this.key(row,col);if(visited.has(key))return;visited.add(key);
+      if(box&&(row<box.r1||row>box.r2||col<box.c1||col>box.c2))return;
+      if(visibleOnly&&(this.hiddenRows.has(row)||this.filteredRows.has(row)||this.hiddenColumns.has(col)))return;
+      let hit=false;
+      if(scope!=='values'){const raw=this.getRawValue(row,col);hit=raw!==''&&raw!=null&&matcher.test(rawText(raw))}
+      if(!hit&&scope!=='formulas'){const value=this.getComputedValue(row,col);hit=value!==''&&value!=null&&matcher.test(this.formatValue(value,this.getCell(row,col).numberFormat))}
+      if(hit)found.push({row,col});
+    };
+    for(const key of [...this.cells.keys()]){const split=key.indexOf(',');consider(+key.slice(0,split),+key.slice(split+1))}
+    if(scope!=='formulas')for(const info of this.getSpillRanges())for(let r=info.row;r<info.row+info.rows;r++)for(let c=info.col;c<info.col+info.cols;c++)consider(r,c);
+    found.sort((a,b)=>a.row-b.row||a.col-b.col);
+    return found.length>limit?found.slice(0,limit):found;
+  }
+  /** Replace text in the entered content of matching cells as one undo step. */
+  replace(query,replacement,options={}){
+    const none={count:0,cells:0};if(this.readOnly)return none;
+    const matcher=textMatcher(query,options);if(!matcher)return none;
+    const targets=this.find(query,{...options,scope:'formulas'}),result={count:0,cells:0};
+    const outcome=this.transaction(()=>{
+      for(const {row,col} of targets){
+        if(this.isCellReadOnly(row,col))continue;
+        const before=rawText(this.getRawValue(row,col)),{text,count}=matcher.replace(before,String(replacement??''));
+        if(!count||text===before)continue;
+        this.setCell(row,col,text);result.count+=count;result.cells++;
+      }
+    });
+    return outcome===false?none:result;
+  }
   _cloneSQLBinding(binding){return binding?{...binding,columns:[...binding.columns],keyColumns:[...binding.keyColumns],editableColumns:binding.editableColumns?[...binding.editableColumns]:null,seenCursors:new Set(binding.seenCursors||[]),sqlRowIds:new Map(binding.sqlRowIds),originalRows:new Map(binding.originalRows),inserted:new Set(binding.inserted),deleted:new Map(binding.deleted)}:null}
   _snapshot(){return {pivotTables:structuredClone(this.pivotTables),validationRules:structuredClone(this.validationRules),variables:new Map(this.variables),cells:new Map(this.cells),rowCount:this.rowCount,colCount:this.colCount,rowHeights:[...this.rowHeights],colWidths:[...this.colWidths],hiddenColumns:new Set(this.hiddenColumns),hiddenRows:new Set(this.hiddenRows),table:this.table?{...this.table}:null,columnFilters:new Map([...this.columnFilters].map(([k,v])=>[k,new Set(v)])),sheetName:this.sheetName,freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),sqlBinding:this._cloneSQLBinding(this.sqlBinding)}}
   _recordHistory(){if((this.historyLimit||this.feature('validation')||this.feature('conditionalFormatting')||this.feature('pivots'))&&!this._historyBefore)this._historyBefore=this._snapshot()}
@@ -638,21 +808,53 @@ export class TinyDatagrid {
   }
   isCellReadOnly(row,col){if(this.feature('pivots')&&this.getCell(row,col).pivotOwner)return true;if(this.readOnly)return true;if(!this.sqlBinding)return false;if(row===this.sqlBinding.headerRow||!this.sqlBinding.keyColumns.length)return true;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];if(!column)return true;return Boolean(column.readOnly||column.primaryKey||this.sqlBinding.keyColumns.includes(column.name)||(this.sqlBinding.editableColumns&&!this.sqlBinding.editableColumns.includes(column.name)))}
   _coerceSQLValue(col,value){if(!this.sqlBinding||typeof value!=='string'||value.startsWith('='))return value;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];return coerceDataValue(value,{type:column?.type||'unknown',locale:this.options.dataLocale||'en-US'})}
-  setCell(row,col,value,meta={}){const originalInput=value;if(this.sqlBinding&&this.isCellReadOnly(row,col))return false;value=this._coerceSQLValue(col,value);this._recordHistory();const grew=this.ensureSize(row+1,col+1);const k=this.key(row,col);const old=this.cells.get(k)||{};this.cells.set(k,{...old,...meta,raw:value,originalInput});this._updateFilteredRows();this.emit('change',{row,col,value});if(grew||this.table)this.render();else this.renderCells();return true}
+  setCell(row,col,value,meta={}){value=unwrapCellValue(value);const originalInput=value;if(this.sqlBinding&&this.isCellReadOnly(row,col))return false;value=this._coerceSQLValue(col,value);this._recordHistory();const grew=this.ensureSize(row+1,col+1);const k=this.key(row,col);const old=this.cells.get(k)||{};this.cells.set(k,{...old,...meta,raw:value,originalInput});this._updateFilteredRows();this.emit('change',{row,col,value});if(grew||this.table)this.render();else this.renderCells();return true}
   getCell(row,col){return this.cells.get(this.key(row,col))||{raw:''}}
   getOriginalValue(row,col){this.getRawValue(row,col);const cell=this.getCell(row,col);return Object.hasOwn(cell,'originalInput')?cell.originalInput:this.getRawValue(row,col)}
   getRawValue(row,col){this.engine?.dependencies.read(this._calculationKey(this.key(row,col)));const cell=this.getCell(row,col);return Object.hasOwn(cell,'raw')?cell.raw:''}
   getComputedValue(row,col,visiting=new Set()){
     const pivotError=this.feature('pivots')?.beforeRead(row,col);if(pivotError)return pivotError;
-    const k=this._calculationKey(this.key(row,col)); this.engine.dependencies.read(k);if(this.engine.cache.has(k)) return this.engine.cache.get(k); if(visiting.has(k)) return '#CYCLE!';
-    this.engine.dependencies.begin(k);visiting.add(k);try{const raw=this.getRawValue(row,col); let out=raw;
+    const dep=this.engine.dependencies;if((dep.dirtyAll||dep.dirty.size)&&!dep.stack.length)this.engine.settle();
+    const k=this._calculationKey(this.key(row,col));dep.read(k);if(this.engine.cache.has(k)) return this.engine.cache.get(k); if(visiting.has(k)) return '#CYCLE!';
+    dep.begin(k);visiting.add(k);try{const raw=this.getRawValue(row,col); let out=raw;
     const cell=this.getCell(row,col),type=cell.valueType||this.options.columnTypes?.[col]||this.sqlBinding?.columns[col-this.sqlBinding.startCol]?.type;
-    if(/^(text|string|char|character|varchar|nvarchar|nchar|uuid|citext|enum|clob|ntext)\b/i.test(type||''))out=raw;
-    else if(typeof raw==='string'&&raw.startsWith('='))out=this.engine.evaluateFormula(raw,visiting);
-    else if(type)out=coerceDataValue(raw,{type,locale:this.options.dataLocale||'en-US'});
-    else out=inferDataValue(raw,{locale:this.options.dataLocale||'en-US',dateParsing:this.options.dateParsing??'iso'}).value;
+    const registered=(dep.spills.size||dep.blocked.size)&&(dep.spills.has(k)||dep.blocked.has(k)),literalText=/^(text|string|char|character|varchar|nvarchar|nchar|uuid|citext|enum|clob|ntext)\b/i.test(type||''),formula=!literalText&&typeof raw==='string'&&raw.startsWith('=');
+    if(registered&&!formula)this.engine.clearSpill(k);
+    if(literalText)out=wrapCellValue(raw);
+    else if(formula){out=this.engine.evaluateFormula(raw,visiting);if(Array.isArray(out))out=this.engine.spillResult(k,row,col,out);else if(registered)this.engine.clearSpill(k)}
+    else if((raw===''||raw==null)&&dep.covered.size&&dep.covered.has(k))out=this._spillValue(k,row,col,visiting);
+    else if(type)out=wrapCellValue(coerceDataValue(raw,{type,locale:this.options.dataLocale||'en-US'}));
+    else{const info=inferDataValue(raw,{locale:this.options.dataLocale||'en-US',dateParsing:this.options.dateParsing??'iso'});out=info.type==='json'?wrapCellValue(info.value):info.value}
     out=checkedResult(out);
-    this.engine.cache.set(k,out);return out;}finally{visiting.delete(k);this.engine.dependencies.end()}
+    this.engine.cache.set(k,out);return out;}finally{visiting.delete(k);dep.end()}
+  }
+  _ownKey(calc){
+    const probe=this._calculationKey('0,0');
+    if(probe==='0,0')return /^\d+,\d+$/.test(calc)?calc:null;
+    try{const [id,key]=JSON.parse(calc),[own]=JSON.parse(probe);return id===own&&/^\d+,\d+$/.test(key)?key:null}catch{return null}
+  }
+  _spillValue(k,row,col,visiting){
+    const dep=this.engine.dependencies,origin=dep.covered.get(k),info=origin&&dep.spills.get(origin);
+    if(!info)return '';
+    if(visiting.has(origin))return '#CYCLE!';
+    this.getComputedValue(info.row,info.col,visiting);
+    const fresh=dep.spills.get(origin);
+    if(!fresh||dep.covered.get(k)!==origin)return '';
+    return fresh.matrix[row-fresh.row]?.[col-fresh.col]??'';
+  }
+  /** The whole result of the formula in a cell (A1#), or a one-cell range for ordinary cells. */
+  getSpill(row,col,visiting=new Set()){
+    const value=this.getComputedValue(row,col,visiting);
+    if(isFormulaError(value))return value;
+    const info=this.engine.dependencies.spills.get(this._calculationKey(this.key(row,col)));
+    return info?info.matrix.map(line=>line.slice()):[[value]];
+  }
+  /** Rectangles currently filled by dynamic-array results: [{row,col,rows,cols}]. */
+  getSpillRanges(){this.engine.settle();return [...this.engine.dependencies.spills.values()].filter(info=>info.owner===this).map(({row,col,rows,cols})=>({row,col,rows,cols}))}
+  _growForSpills(){
+    let rows=this.rowCount,cols=this.colCount;
+    for(const info of this.engine.dependencies.spills.values()){if(info.owner!==this)continue;rows=Math.max(rows,info.row+info.rows);cols=Math.max(cols,info.col+info.cols)}
+    if(rows>this.rowCount||cols>this.colCount)this.ensureSize(rows,cols);
   }
   setVariable(name,value){name=String(name).replace(/^@/,'');this.variables.set(name,value);this.engine.dependencies.invalidate(this._calculationKey(`@${name}`));this.render();this.emit('variable',{name,value});}
   getVariable(name){name=String(name).replace(/^@/,'');this.engine.dependencies.read(`external:${name}`);if(this.externalVariables.has(name))return this.externalVariables.get(name);this.engine.dependencies.read(this._calculationKey(`@${name}`));return this.variables.get(name);}
@@ -744,11 +946,11 @@ export class TinyDatagrid {
     const rr={r1:Math.min(range.r1,range.r2),c1:Math.min(range.c1,range.c2),r2:Math.max(range.r1,range.r2),c2:Math.max(range.c1,range.c2)};
     const out=[];for(let r=rr.r1;r<=rr.r2;r++){const row=[];for(let c=rr.c1;c<=rr.c2;c++)row.push(computed?this.getComputedValue(r,c):this.getRawValue(r,c));out.push(row)}return out;
   }
-  getUsedRange(){if(this.sqlBinding)return {r1:this.sqlBinding.headerRow,c1:this.sqlBinding.startCol,r2:this.sqlBinding.lastDataRow,c2:this.sqlBinding.startCol+this.sqlBinding.columns.length-1};let r2=0,c2=0;for(const [key,cell] of this.cells){if(cell.raw===''||cell.raw==null)continue;const [r,c]=key.split(',').map(Number);r2=Math.max(r2,r);c2=Math.max(c2,c)}return {r1:0,c1:0,r2,c2}}
+  getUsedRange(){if(this.sqlBinding)return {r1:this.sqlBinding.headerRow,c1:this.sqlBinding.startCol,r2:this.sqlBinding.lastDataRow,c2:this.sqlBinding.startCol+this.sqlBinding.columns.length-1};let r2=0,c2=0;for(const [key,cell] of this.cells){if(cell.raw===''||cell.raw==null)continue;const [r,c]=key.split(',').map(Number);r2=Math.max(r2,r);c2=Math.max(c2,c)}for(const info of this.getSpillRanges()){r2=Math.max(r2,info.row+info.rows-1);c2=Math.max(c2,info.col+info.cols-1)}return {r1:0,c1:0,r2,c2}}
   exportCSV({range,computed=false,delimiter=','}={}){return stringifyCSV(this.toArray(range||this.getUsedRange(),computed),delimiter)}
   exportTSV({range,computed=false}={}){return this.exportCSV({range,computed,delimiter:'\t'})}
-  exportHTML({range,computed=true}={}){const escape=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');const rows=this.toArray(range||this.getUsedRange(),computed);return `<!doctype html><meta charset="utf-8"><table><tbody>${rows.map(row=>`<tr>${row.map(value=>`<td>${escape(value)}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
-  exportMarkdown({range,computed=true}={}){const rows=this.toArray(range||this.getUsedRange(),computed).map(row=>row.map(value=>String(value??'').replaceAll('|','\\|').replace(/\r?\n/g,'<br>')));if(!rows.length)return '';return [rows[0],rows[0].map(()=> '---'),...rows.slice(1)].map(row=>`| ${row.join(' | ')} |`).join('\n')}
+  exportHTML({range,computed=true}={}){const escape=value=>rawText(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');const rows=this.toArray(range||this.getUsedRange(),computed);return `<!doctype html><meta charset="utf-8"><table><tbody>${rows.map(row=>`<tr>${row.map(value=>`<td>${escape(value)}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
+  exportMarkdown({range,computed=true}={}){const rows=this.toArray(range||this.getUsedRange(),computed).map(row=>row.map(value=>rawText(value).replaceAll('|','\\|').replace(/\r?\n/g,'<br>')));if(!rows.length)return '';return [rows[0],rows[0].map(()=> '---'),...rows.slice(1)].map(row=>`| ${row.join(' | ')} |`).join('\n')}
   importCSV(text,options={}){return this.importDelimited(text,{...options,delimiter:options.delimiter||detectDelimiter(text)})}
   _importMatrix(data,{startRow=0,startCol=0,replace=false,preserveDataSource=false,cellFormats=null,textCells=null,originalRows=null}={}){
     if(!Array.isArray(data)||!data.length)return 0;const width=Math.max(0,...data.map(row=>Array.isArray(row)?row.length:0));this._recordHistory();
@@ -803,6 +1005,7 @@ export class TinyDatagrid {
       if(values&&Object.hasOwn(meta,'originalInput'))cell.originalInput=toPortableValue(meta.originalInput);
       if(Object.keys(cell).length>2)cells.push(cell);
     }
+    if(!formulas&&values&&computedValues)for(const info of this.getSpillRanges())for(let r=info.row;r<info.row+info.rows;r++)for(let c=info.col;c<info.col+info.cols;c++)if(r!==info.row||c!==info.col)cells.push({row:r,col:c,value:toPortableValue(this.getComputedValue(r,c))});
     const dims=dimensions?{rows:this.rowCount,columns:this.colCount,rowHeights:[...this.rowHeights],columnWidths:[...this.colWidths],hiddenRows:[...this.hiddenRows].sort((a,b)=>a-b),hiddenColumns:[...this.hiddenColumns].sort((a,b)=>a-b)}:undefined;
     const sheet={id:'sheet1',name:this.sheetName,cells,variables:toPortableValue(Object.fromEntries(this.variables)),...(dims?{dimensions:dims}:{}),freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),validationRules:structuredClone(this.validationRules),pivotTables:structuredClone(this.pivotTables),table:this.table?{...this.table}:null,filters:[...this.columnFilters].map(([column,values])=>({column,values:[...values]}))};
     const workbook={format:'tinyDatagrid-workbook',version:2,activeSheetId:'sheet1',sheets:[sheet],cells,variables:sheet.variables};
@@ -1054,6 +1257,27 @@ export class TinyDatagrid {
     visibleItems.forEach(([action,label],itemIndex)=>{if([2,5,7].includes(itemIndex)){const separator=document.createElement('div');separator.className='tg-menu-separator';separator.setAttribute('role','separator');this.contextMenu.append(separator)}const button=document.createElement('button');button.type='button';button.className='tg-menu-item';button.setAttribute('role','menuitem');button.dataset.action=action;button.textContent=label;if(action==='delete'&&(row?this.rowCount:this.colCount)<=1)button.disabled=true;if(action==='hide'&&(row?this.hiddenRows.size>=this.rowCount-1:this.hiddenColumns.size>=this.colCount-1))button.disabled=true;if(action==='showAll'&&!(row?this.hiddenRows.size:this.hiddenColumns.size))button.disabled=true;this.contextMenu.append(button)});
     this._positionContextMenu();this.contextMenu.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
   }
+  // Touch: tap selects, double tap edits, press-and-hold then drag extends the range; a plain drag scrolls.
+  _touchBegin(e,row,col){
+    if(this._touch){clearTimeout(this._touch.timer);this._touch=null}
+    const touch={id:e.pointerId,x:e.clientX,y:e.clientY,row,col,moved:false,range:false};
+    touch.timer=setTimeout(()=>{touch.range=true;navigator.vibrate?.(8)},350);
+    this._touch=touch;
+  }
+  _touchMove(e){
+    const touch=this._touch;if(!touch||e.pointerId!==touch.id)return false;
+    if(touch.range){const p=this.getCellAtClient(e.clientX,e.clientY);this.select(p.row,p.col,true)}
+    else if(Math.hypot(e.clientX-touch.x,e.clientY-touch.y)>10){touch.moved=true;clearTimeout(touch.timer)}
+    return true;
+  }
+  _touchEnd(e,completed){
+    const touch=this._touch;if(!touch||e.pointerId!==touch.id)return;
+    clearTimeout(touch.timer);this._touch=null;
+    if(!completed||touch.moved||touch.range)return;
+    const now=performance.now(),last=this._lastTap;
+    if(last&&now-last.time<350&&last.row===touch.row&&last.col===touch.col){this._lastTap=null;this.edit(touch.row,touch.col)}
+    else this._lastTap={time:now,row:touch.row,col:touch.col};
+  }
   _openColumnMenu(col,event){event.preventDefault();event.stopPropagation();this._setColumnSelection(col);this._contextMenuPoint={x:event.clientX,y:event.clientY};this._renderAxisMenu('column',col)}
   _openRowMenu(row,event){event.preventDefault();event.stopPropagation();this._setRowSelection(row);this._contextMenuPoint={x:event.clientX,y:event.clientY};this._renderAxisMenu('row',row)}
   _closeColumnMenu(){const focused=this.contextMenu.contains(document.activeElement);this.contextMenu.hidden=true;this.contextMenu.replaceChildren();if(focused)this.el.focus({preventScroll:true})}
@@ -1081,10 +1305,10 @@ export class TinyDatagrid {
   offsets(arr){const out=[0];for(let i=0;i<arr.length;i++)out.push(out[i]+arr[i]);return out}
   _frozenCounts(){return this.feature('freezePanes')?{rows:clamp(Math.trunc(Number(this.freezePanes.rows))||0,0,this.rowCount-1),columns:clamp(Math.trunc(Number(this.freezePanes.columns))||0,0,this.colCount-1)}:{rows:0,columns:0}}
   _renderIndices(range,axis){const frozen=this._frozenCounts()[axis];return [...new Set([...Array.from({length:frozen},(_,i)=>i),...Array.from({length:range.end-range.start},(_,i)=>range.start+i)])]}
-  _viewOffset(index,axis){const rows=axis==='rows',frozen=this._frozenCounts()[axis],offsets=rows?this.rowOffsets:this.colOffsets,scroll=rows?this.scroll.scrollTop:this.scroll.scrollLeft;return index<frozen?offsets[index]:Math.max(offsets[frozen]||0,offsets[index]-scroll)}
+  _viewOffset(index,axis){const rows=axis==='rows',frozen=this._frozenCounts()[axis],offsets=rows?this.rowOffsets:this.colOffsets,scroll=rows?this.scroll.scrollTop:this.scroll.scrollLeft;return index<frozen?offsets[index]:offsets[index]-scroll}
   _syncFrozenCells(){
     const frozen=this._frozenCounts();if(!frozen.rows&&!frozen.columns)return;
-    for(const cell of this.canvas.querySelectorAll('.tg-cell')){const r=+cell.dataset.row,c=+cell.dataset.col;if(r<frozen.rows||c<frozen.columns){cell.style.left=(this.colOffsets[c]+(c<frozen.columns?this.scroll.scrollLeft:0))+'px';cell.style.top=(this.rowOffsets[r]+(r<frozen.rows?this.scroll.scrollTop:0))+'px';cell.style.zIndex=r<frozen.rows&&c<frozen.columns?'4':'3'}}
+    for(const cell of this.canvas.querySelectorAll('.tg-cell')){const r=+cell.dataset.row,c=+cell.dataset.col;cell.classList.toggle('tg-frozen-row-edge',r===frozen.rows-1);cell.classList.toggle('tg-frozen-column-edge',c===frozen.columns-1);if(r<frozen.rows||c<frozen.columns){cell.style.left=(this.colOffsets[c]+(c<frozen.columns?this.scroll.scrollLeft:0))+'px';cell.style.top=(this.rowOffsets[r]+(r<frozen.rows?this.scroll.scrollTop:0))+'px';cell.style.zIndex=r<frozen.rows&&c<frozen.columns?'4':'3'}}
   }
   _visibleRange(offsets,count,scrollPosition,viewportSize,fallbackSize){
     if(!count)return {start:0,end:0};
@@ -1117,8 +1341,8 @@ export class TinyDatagrid {
     this.rowHeaders.querySelectorAll('.tg-rowhead').forEach(h=>{const r=+h.dataset.row;h.style.top=(this.rowOffsets[r]-(r<this._frozenCounts().rows?0:sy))+'px';h.style.zIndex=r<this._frozenCounts().rows?'2':'1'});
   }
   renderCells(){
-    const rowsBefore=this.rowCount,colsBefore=this.colCount;this.feature('pivots')?.refresh();if(rowsBefore!==this.rowCount||colsBefore!==this.colCount){this.layout();return}
-    this.canvas.innerHTML='';const frag=document.createDocumentFragment();
+    const rowsBefore=this.rowCount,colsBefore=this.colCount;this.engine.settle();this.feature('pivots')?.refresh();if(rowsBefore!==this.rowCount||colsBefore!==this.colCount){this.layout();return}
+    this.canvas.innerHTML='';const frag=document.createDocumentFragment(),spills=this.engine.dependencies;
     const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this.scroll.scrollTop,this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
     const cols=this.virtualization?this._visibleRange(this.colOffsets,this.colCount,this.scroll.scrollLeft,this.scroll.clientWidth,this.options.columnWidth*10):{start:0,end:this.colCount};
     for(const r of this._renderIndices(rows,'rows')){
@@ -1128,13 +1352,15 @@ export class TinyDatagrid {
       if(this.virtualization&&(!this.displayRowHeights[r]||!this.displayColWidths[c]))continue;
       const d=document.createElement('div');d.className='tg-cell';d.dataset.row=r;d.dataset.col=c;d.id=`${this._gridId}-cell-${r}-${c}`;d.setAttribute('role','gridcell');d.setAttribute('aria-colindex',String(c+1));d.draggable=false;d.style.left=this.colOffsets[c]+'px';d.style.top=this.rowOffsets[r]+'px';d.style.width=this.displayColWidths[c]+'px';d.style.height=this.displayRowHeights[r]+'px';if(this.hiddenColumns.has(c))d.classList.add('tg-hidden-column');if(this.hiddenRows.has(r)||this.filteredRows.has(r))d.classList.add('tg-hidden-row');
       const v=this.getComputedValue(r,c);const meta=this.getCell(r,c);
+      if(spills.covered.size||spills.spills.size){const calc=this._calculationKey(this.key(r,c)),origin=spills.spills.has(calc)?calc:spills.covered.get(calc),area=origin&&spills.spills.get(origin);if(area){d.classList.add('tg-spilled');if(r===area.row)d.classList.add('tg-spill-t');if(r===area.row+area.rows-1)d.classList.add('tg-spill-b');if(c===area.col)d.classList.add('tg-spill-l');if(c===area.col+area.cols-1)d.classList.add('tg-spill-r')}}
       if(this.table&&r===this.table.headerRow&&c>=this.table.c1&&c<=this.table.c2){d.classList.add('tg-table-header');const label=document.createElement('span');label.className='tg-table-header-label';label.textContent=this.formatValue(v,meta.numberFormat);const trigger=document.createElement('button');trigger.type='button';trigger.className='tg-filter-trigger';trigger.dataset.filterColumn=c;trigger.tabIndex=-1;trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-label',`${this.t('filter')} ${label.textContent}`);trigger.textContent=this.columnFilters.has(c)?'▾•':'▾';d.append(label,trigger)}else d.textContent=this.formatValue(v,meta.numberFormat);
-      if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);const conditional=this.feature('conditionalFormatting');if(conditional)Object.assign(d.style,conditional.cellStyle(r,c,v));const invalid=this.feature('validation')?.validate(r,c,this.getRawValue(r,c));if(invalid){d.setAttribute('aria-invalid','true');d.title=invalid;d.classList.add('tg-invalid')}if(this.table&&this.table.style==='banded'&&r>this.table.headerRow&&(r-this.table.headerRow)%2===0)d.classList.add('tg-table-banded');rowElement.append(d);
+      if(v instanceof JSONValue){d.classList.add('tg-json',v.isArray?'tg-json-array':'tg-json-object');d.title=v.toString().slice(0,400)}else if(typeof v==='string'&&v[0]==='#'&&isFormulaError(v)){d.classList.add('tg-error');d.title=v}if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);const conditional=this.feature('conditionalFormatting');if(conditional)Object.assign(d.style,conditional.cellStyle(r,c,v));const invalid=this.feature('validation')?.validate(r,c,this.getRawValue(r,c));if(invalid){d.setAttribute('aria-invalid','true');d.title=invalid;d.classList.add('tg-invalid')}if(this.table&&this.table.style==='banded'&&r>this.table.headerRow&&(r-this.table.headerRow)%2===0)d.classList.add('tg-table-banded');rowElement.append(d);
       }
     }
     this.canvas.append(frag);this._syncFrozenCells();this.updateSelectionOverlay();
   }
   formatValue(value,format){
+    if(value instanceof JSONValue)return value.toString();
     if(value instanceof Date)return value.toLocaleString(this.locale);
     if(value instanceof ArrayBuffer||ArrayBuffer.isView(value))return `[Binary ${value.byteLength} bytes]`;
     if(value&&typeof value==='object')return JSON.stringify(value);
@@ -1156,9 +1382,33 @@ export class TinyDatagrid {
     if(active&&!this.hiddenColumns.has(s.c2)&&!this.filteredRows.has(s.r2)&&!this.hiddenRows.has(s.r2))this.el.setAttribute('aria-activedescendant',activeId);else this.el.removeAttribute('aria-activedescendant');
     this.canvas.querySelectorAll('[role=gridcell]').forEach(cell=>{const r=+cell.dataset.row,c=+cell.dataset.col;cell.setAttribute('aria-selected',String(r>=Math.min(s.r1,s.r2)&&r<=Math.max(s.r1,s.r2)&&c>=Math.min(s.c1,s.c2)&&c<=Math.max(s.c1,s.c2))) });
     const r1=Math.min(s.r1,s.r2),r2=Math.max(s.r1,s.r2),c1=Math.min(s.c1,s.c2),c2=Math.max(s.c1,s.c2);
-    const sr=this.scroll.getBoundingClientRect(),root=this.el.getBoundingClientRect();const left=this.options.headerWidth + this._viewOffset(c1,'columns');const top=this.options.headerHeight + this._viewOffset(r1,'rows');
-    this.selectionEl.style.left=left+'px';this.selectionEl.style.top=top+'px';this.selectionEl.style.width=Math.max(0,this._viewOffset(c2,'columns')+this.displayColWidths[c2]-this._viewOffset(c1,'columns'))+'px';this.selectionEl.style.height=Math.max(0,this._viewOffset(r2,'rows')+this.displayRowHeights[r2]-this._viewOffset(r1,'rows'))+'px';
-    this.selectionEl.style.display=this.colOffsets[c2+1]===this.colOffsets[c1]||this.rowOffsets[r2+1]===this.rowOffsets[r1]?'none':'block';
+    // Each frozen/scrolling pane has its own transform and clipping rectangle.
+    const frozen=this._frozenCounts(),width=this.scroll.clientWidth,height=this.scroll.clientHeight;
+    const segments=(first,last,axis,limit)=>{
+      const rows=axis==='rows',offsets=rows?this.rowOffsets:this.colOffsets,count=frozen[axis],shift=rows?this.scroll.scrollTop:this.scroll.scrollLeft,boundary=Math.min(limit,offsets[count]||0),parts=[];
+      for(const [start,end,delta,min,max] of [[first,Math.min(last,count-1),0,0,boundary],[Math.max(first,count),last,shift,boundary,limit]]){
+        if(start>end)continue;
+        const rawStart=offsets[start]-delta,rawEnd=offsets[end+1]-delta,lo=Math.max(min,rawStart),hi=Math.min(max,rawEnd);
+        if(hi>lo)parts.push({lo,hi,startVisible:rawStart>=min,endVisible:rawEnd<=max});
+      }
+      return parts;
+    };
+    const xs=segments(c1,c2,'columns',width),ys=segments(r1,r2,'rows',height);
+    Object.assign(this.selectionEl.style,{left:this.scroll.offsetLeft+'px',top:this.scroll.offsetTop+'px',width:width+'px',height:height+'px',display:xs.length&&ys.length?'block':'none'});
+    this.selectionEl.querySelectorAll('.tg-selection-part').forEach(part=>part.remove());
+    for(const x of xs)for(const y of ys){
+      const part=document.createElement('div');part.className='tg-selection-part';
+      Object.assign(part.style,{left:x.lo+'px',top:y.lo+'px',width:(x.hi-x.lo)+'px',height:(y.hi-y.lo)+'px',borderLeftWidth:x.startVisible?'2px':'0',borderRightWidth:x.endVisible?'2px':'0',borderTopWidth:y.startVisible?'2px':'0',borderBottomWidth:y.endVisible?'2px':'0'});
+      this.selectionEl.append(part);
+    }
+    const x=this._viewOffset(c2,'columns')+this.displayColWidths[c2],y=this._viewOffset(r2,'rows')+this.displayRowHeights[r2];
+    const minX=c2<frozen.columns?0:this.colOffsets[frozen.columns],minY=r2<frozen.rows?0:this.rowOffsets[frozen.rows];
+    Object.assign(this.fillHandle.style,{left:(x-4)+'px',top:(y-4)+'px',right:'auto',bottom:'auto',display:!this.readOnly&&x>minX&&x<=width&&y>minY&&y<=height&&this.displayColWidths[c2]>0&&this.displayRowHeights[r2]>0?'block':'none'});
+    if(this._editing){
+      const {row,col}=this._editing,ex=this._viewOffset(col,'columns'),ey=this._viewOffset(row,'rows');
+      const visible=ex>=(col<frozen.columns?0:this.colOffsets[frozen.columns])&&ey>=(row<frozen.rows?0:this.rowOffsets[frozen.rows])&&ex<width&&ey<height;
+      Object.assign(this.editor.style,{left:(this.scroll.offsetLeft+ex)+'px',top:(this.scroll.offsetTop+ey)+'px',visibility:visible?'visible':'hidden'});
+    }
   }
   select(row,col,extend=false){
     row=clamp(row,0,this.rowCount-1);col=clamp(col,0,this.colCount-1);
@@ -1174,10 +1424,14 @@ export class TinyDatagrid {
   edit(row=this.selection.r2,col=this.selection.c2,initial=null){
     if(this.isCellReadOnly(row,col))return false;
     const left=this.options.headerWidth+this._viewOffset(col,'columns'),top=this.options.headerHeight+this._viewOffset(row,'rows');
-    this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.setAttribute('aria-label',`${toA1(row,col)} · ${this.t('editor')}`);this.editor.value=initial??this.getRawValue(row,col);this.editor.style.display='block';this.editor.style.height=Math.min(240,Math.max(this.displayRowHeights[row],this.editor.scrollHeight))+'px';this.editor.focus({preventScroll:true});this.editor.select();this._editing={row,col};
+    this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.setAttribute('aria-label',`${toA1(row,col)} · ${this.t('editor')}`);this.editor.value=initial??rawText(this.getRawValue(row,col));this.editor.style.display='block';this.editor.style.visibility='visible';this.editor.style.height=Math.min(240,Math.max(this.displayRowHeights[row],this.editor.scrollHeight))+'px';this.editor.focus({preventScroll:true});this.editor.select();this._editing={row,col};
   }
   commitEdit(cancel=false){if(!this._editing)return;if(!cancel&&!this.isCellReadOnly(this._editing.row,this._editing.col)){const {row,col}=this._editing;if(this.setCell(row,col,this.editor.value)===false){this.editor.setCustomValidity(this.feature('validation')?.validate(row,col,this.editor.value)||'Invalid value');this.editor.reportValidity();return false}}this.editor.setCustomValidity('');this._editing=null;this.editor.style.display='none';this.el.focus({preventScroll:true})}
-  copySelection(){return this.toArray(this.selection,false).map(r=>r.join('\t')).join('\n')}
+  copySelection(){
+    const rows=this.toArray(this.selection,false),dep=this.engine.dependencies;
+    if(dep.covered.size){const r1=Math.min(this.selection.r1,this.selection.r2),c1=Math.min(this.selection.c1,this.selection.c2);rows.forEach((line,i)=>line.forEach((value,j)=>{if(value===''&&dep.covered.has(this._calculationKey(this.key(r1+i,c1+j))))line[j]=this.getComputedValue(r1+i,c1+j)}))}
+    return rows.map(line=>line.map(rawText).join('\t')).join('\n');
+  }
   pasteText(text,start=this.anchor){if(this.readOnly)return false;const rows=text.replace(/\r/g,'').split('\n').map(r=>r.split('\t'));if(this.sqlBinding&&rows.some((row,dr)=>row.some((_,dc)=>this.isCellReadOnly(start.row+dr,start.col+dc))))return false;this._recordHistory();rows.forEach((rr,dr)=>rr.forEach((v,dc)=>this.cells.set(this.key(start.row+dr,start.col+dc),{raw:this._coerceSQLValue(start.col+dc,v),originalInput:v})));this.ensureSize(start.row+rows.length,start.col+Math.max(...rows.map(r=>r.length)));this.render();this.emit('change',{type:'paste'});return true}
   bind(){
     this._syncVirtualizationObserver();
@@ -1203,10 +1457,11 @@ export class TinyDatagrid {
     this._listen(this.autofillMenu,'focusout',e=>{if(!this.autofillMenu.hidden&&!this.autofillMenu.contains(e.relatedTarget))this._closeAutofillMenu(true)});
     const filterInput=e=>{if(e.target.matches('.tg-filter-search')){const query=e.target.value.toLocaleLowerCase();this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{box.closest('.tg-filter-option').hidden=!box.dataset.filterValue.toLocaleLowerCase().includes(query)})}else if(e.target.matches('[data-select-all]'))this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{if(!box.closest('.tg-filter-option').hidden)box.checked=e.target.checked});this._syncFilterSelectAll()};this._listen(this.filterMenu,'input',filterInput);this._listen(this.filterMenu,'change',filterInput);
     this._listen(this.canvas,'click',e=>{const trigger=e.target.closest('.tg-filter-trigger');if(trigger){e.preventDefault();e.stopPropagation();this._openFilterMenu(+trigger.dataset.filterColumn,trigger)}});
-    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0||e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(!cell)return;this.el.focus({preventScroll:true});const row=+cell.dataset.row,col=+cell.dataset.col;this.select(row,col,e.shiftKey);this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
-    this._listen(this.canvas,'pointermove',e=>{if(!this._selectDrag||e.pointerId!==this._selectDrag.pointerId)return;const p=this.getCellAtClient(e.clientX,e.clientY);this.select(p.row,p.col,true)});
-    this._listen(this.canvas,'pointerup',e=>{if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
-    this._listen(this.canvas,'pointercancel',e=>{if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
+    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0||e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(!cell)return;this.el.focus({preventScroll:true});const row=+cell.dataset.row,col=+cell.dataset.col;this.select(row,col,e.shiftKey);if(e.pointerType==='touch'){this._touchBegin(e,row,col);return}this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
+    this._listen(this.canvas,'pointermove',e=>{if(this._touchMove(e))return;if(!this._selectDrag||e.pointerId!==this._selectDrag.pointerId)return;const p=this.getCellAtClient(e.clientX,e.clientY);this.select(p.row,p.col,true)});
+    this._listen(this.canvas,'pointerup',e=>{this._touchEnd(e,true);if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
+    this._listen(this.canvas,'pointercancel',e=>{this._touchEnd(e,false);if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
+    this._listen(this.canvas,'touchmove',e=>{if(this._touch?.range&&e.cancelable)e.preventDefault()},{passive:false});
     this._listen(this.canvas,'dblclick',e=>{if(e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(cell)this.edit(+cell.dataset.row,+cell.dataset.col)});
     this._listen(this.fillHandle,'dblclick',e=>{e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
     this._listen(this.fillHandle,'keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
@@ -1217,6 +1472,15 @@ export class TinyDatagrid {
     const resize=(axis)=>e=>{if(this.readOnly)return;this.beginHistory();e.preventDefault();e.stopPropagation();const head=e.target.parentElement;const idx=+(axis==='x'?head.dataset.col:head.dataset.row);const start=axis==='x'?e.clientX:e.clientY;const size=axis==='x'?this.colWidths[idx]:this.rowHeights[idx];const move=ev=>{if(this.readOnly)return;const d=(axis==='x'?ev.clientX:ev.clientY)-start;axis==='x'?this.setColumnWidth(idx,size+d):this.setRowHeight(idx,size+d)};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);this.endHistory()};window.addEventListener('pointercancel',up,{signal:this._abort.signal});window.addEventListener('pointermove',move,{signal:this._abort.signal});window.addEventListener('pointerup',up,{signal:this._abort.signal})};
     this._listen(this.colHeaders,'pointerdown',e=>{if(e.target.classList.contains('tg-resize-x'))resize('x')(e);else{const h=e.target.closest('.tg-colhead');if(h)this._setColumnSelection(+h.dataset.col)}});
     this._listen(this.rowHeaders,'pointerdown',e=>{if(e.target.classList.contains('tg-resize-y'))resize('y')(e);else{const h=e.target.closest('.tg-rowhead');if(h)this._setRowSelection(+h.dataset.row)}});
+    // iOS never fires contextmenu, so a long press on a header opens its menu.
+    const headerPress=(box,selector,resizeClass,open)=>{
+      let press=null;const stop=()=>{if(press){clearTimeout(press.timer);press=null}};
+      this._listen(box,'pointerdown',e=>{if(e.pointerType!=='touch'||e.target.classList.contains(resizeClass))return;const header=e.target.closest(selector);if(!header)return;stop();const x=e.clientX,y=e.clientY;press={id:e.pointerId,x,y,timer:setTimeout(()=>{press=null;open(header,{clientX:x,clientY:y,preventDefault(){},stopPropagation(){}})},500)}});
+      this._listen(box,'pointermove',e=>{if(press&&e.pointerId===press.id&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>10)stop()});
+      this._listen(box,'pointerup',stop);this._listen(box,'pointercancel',stop);
+    };
+    headerPress(this.colHeaders,'.tg-colhead','tg-resize-x',(header,event)=>this._openColumnMenu(+header.dataset.col,event));
+    headerPress(this.rowHeaders,'.tg-rowhead','tg-resize-y',(header,event)=>this._openRowMenu(+header.dataset.row,event));
     this._listen(this.editor,'keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(this.commitEdit()===false)return;this.select(Math.min(this.rowCount-1,this.anchor.row+1),this.anchor.col)}else if(e.key==='Escape'){e.preventDefault();this.commitEdit(true)}else if(e.key==='Tab'){e.preventDefault();if(this.commitEdit()===false)return;this.select(this.anchor.row,Math.min(this.colCount-1,this.anchor.col+(e.shiftKey?-1:1)))}});
     this._listen(this.editor,'input',()=>{this.editor.setCustomValidity('');this.editor.style.height=Math.min(240,Math.max(32,this.editor.scrollHeight))+'px'});
     this._listen(this.editor,'blur',()=>this.commitEdit());

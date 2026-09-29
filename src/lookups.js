@@ -1,8 +1,9 @@
 import { formulaNumber, parseNumericValue } from './numeric-values.js';
+import { flattenValues, rowsOf } from './json-values.js';
 const isFormulaError = value => typeof value === 'string' && /^#(?:REF!|N\/A|VALUE!|NAME[?!]|NUM!|DIV\/0!|ERROR!|CYCLE!|SPILL!|RANGE!)/.test(value);
 const asNumber = formulaNumber;
-const flatten = value => Array.isArray(value) ? value.flat(Infinity) : [value];
-const normalizedRows = value => Array.isArray(value) ? (Array.isArray(value[0]) ? value : value.map(item => [item])) : [[value]];
+const flatten = flattenValues;
+const normalizedRows = rowsOf;
 
 function compareValues(left, right) {
   if (left instanceof Date || right instanceof Date) {

@@ -41,7 +41,10 @@ export type DelimitedImportOptions = { startRow?: number; startCol?: number; rep
 
 export interface GridPlugin<T = any> { name: string; setup(grid: TinyDatagrid): T & { destroy?: () => void }; }
 export type ConditionalRule = { range: CellRange; operator: 'eq'|'ne'|'gt'|'gte'|'lt'|'lte'|'between'|'contains'|'empty'|'notEmpty'; value?: unknown; max?: number; style: Partial<Pick<CSSStyleDeclaration,'backgroundColor'|'color'|'fontWeight'|'fontStyle'|'textDecoration'|'textAlign'>>; stopIfTrue?: boolean };
-export type ValidationRule = { range: CellRange; type: 'number'|'integer'|'list'|'textLength'; min?: number; max?: number; values?: Array<string|number|boolean>; allowEmpty?: boolean; allowFormula?: boolean; message?: string };
+export type ValidationRule = { range: CellRange; type: 'number'|'integer'|'list'|'textLength'|'json'; kind?: 'object'|'array'; min?: number; max?: number; values?: Array<string|number|boolean>; allowEmpty?: boolean; allowFormula?: boolean; message?: string };
+
+export type FindOptions = { matchCase?: boolean; wholeCell?: boolean; regex?: boolean; scope?: 'formulas'|'values'|'both'; range?: CellRange | null; visibleOnly?: boolean; limit?: number };
+export type SpillRange = { row: number; col: number; rows: number; cols: number };
 
 export class TinyDatagrid {
   constructor(container: string | Element, options?: TinyDatagridOptions);
@@ -85,6 +88,14 @@ export class TinyDatagrid {
   createShareURL(baseURL?: string): string;
   importShareHash(hash?: string): { cells: number; rows: number; columns: number };
   setVirtualization(enabled?: boolean): this;
+  /** Cells matching text in their entered content ('formulas'), their result ('values') or either, in reading order. */
+  find(query: string, options?: FindOptions): Array<{ row: number; col: number }>;
+  /** Replace text in matching cells' entered content as one undo step. */
+  replace(query: string, replacement: string, options?: Omit<FindOptions, 'scope' | 'limit'>): { count: number; cells: number };
+  /** The whole result of the formula in a cell (what `A1#` reads); a one-cell range for ordinary cells. */
+  getSpill(row: number, col: number): unknown[][] | string;
+  /** Rectangles currently filled by formulas that return several cells. */
+  getSpillRanges(): SpillRange[];
   loadRecords(records: Record<string, unknown>[], options?: { headers?: string[]; includeHeaders?: boolean; startRow?: number; startCol?: number }): { rows: number; headers: string[] };
   importCSV(text: string, options?: DelimitedImportOptions): number;
   importDelimited(text: string, options?: DelimitedImportOptions): number;

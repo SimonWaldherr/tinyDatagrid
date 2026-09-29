@@ -1,55 +1,62 @@
+import { demoWorkbook } from './file-tools.js';
+import { exportPNG, printPDF } from '../src/exporters.js';
 import { inferDelimitedRows, inferDataValue } from '../src/data-types.js';
 import TinyDatagrid, { parseA1, toA1, parseCSV, detectDelimiter } from '../src/tinygrid.js';
-import { translator } from './i18n.js';
-import { freezePanes, conditionalFormatting, dataValidation } from '../src/features.js';
+import { translator, languages, detectLanguage } from './i18n.js';
+import * as features from '../src/features.js';
+const { freezePanes, conditionalFormatting, dataValidation } = features;
+// Optional formula plugins are installed when this build of the library provides them.
+const optionalPlugins = ['dynamicArrays', 'jsonFunctions'].flatMap(name => typeof features[name] === 'function' ? [features[name]()] : []);
 import { sheetPivots } from '../src/pivots.js';
 import { functionHelp, documentedFunctions } from '../src/function-help.js';
+import { rawText } from '../src/json-values.js';
+import { installJSONTools } from '../src/json-tools.js';
+import { installSearch } from '../src/search-tools.js';
+import { installCharts } from '../src/charts.js';
+import { attachFormulaAssist } from '../src/formula-assist.js';
 
 const $ = selector => document.querySelector(selector);
 const all = selector => [...document.querySelectorAll(selector)];
 function preference(key, fallback) { try { return localStorage.getItem(`tinygrid.${key}`) || fallback; } catch { return fallback; } }
 function savePreference(key, value) { try { localStorage.setItem(`tinygrid.${key}`, value); } catch { /* Preferences are optional. */ } }
-let language = preference('language', navigator.language.startsWith('de') ? 'de' : 'en');
-if (!['de', 'en'].includes(language)) language = 'en';
+let language = detectLanguage([preference('language', ''), ...(navigator.languages || [navigator.language])]);
 let t = translator(language);
+const themes = ['system', 'light', 'dark', 'ocean', 'paper', 'midnight', 'graphite', 'contrast'];
+const typefaces = { system: '', serif: 'Georgia,"Iowan Old Style","Times New Roman",serif', mono: 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace' };
 let theme = preference('theme', 'system');
-if (!['system', 'light', 'dark'].includes(theme)) theme = 'system';
-document.documentElement.dataset.theme = theme;
-$('#theme').value = theme;
+if (!themes.includes(theme)) theme = 'system';
+let typeface = preference('typeface', 'system');
+if (!(typeface in typefaces)) typeface = 'system';
+function applyTheme() {
+  document.documentElement.dataset.theme = theme;
+  all('[data-theme-choice]').forEach(button => { const active = button.dataset.themeChoice === theme; button.setAttribute('aria-checked', String(active)); button.tabIndex = active ? 0 : -1; });
+  const background = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  if (background) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', background);
+}
+function applyTypeface() {
+  if (typefaces[typeface]) document.documentElement.style.setProperty('--tg-font', typefaces[typeface]); else document.documentElement.style.removeProperty('--tg-font');
+  $('#typeface').value = typeface;
+  grid.layout();
+}
+$('#language').replaceChildren(...languages.map(([code, name]) => new Option(name, code)));
 $('#language').value = language;
-const grid = new TinyDatagrid('#grid', { rows: 60, columns: 12, columnWidth: 120, rowHeight: 31, historyLimit: 100, externalVariables: { vat: 0.19 }, plugins: [freezePanes(), conditionalFormatting(), dataValidation(), sheetPivots()], locale: language });
+const grid = new TinyDatagrid('#grid', { rows: 60, columns: 12, columnWidth: 120, rowHeight: 31, historyLimit: 100, plugins: [freezePanes(), conditionalFormatting(), dataValidation(), ...optionalPlugins, sheetPivots()], locale: language });
 let shareError = false;
 let shared = false;
 if (location.hash.startsWith('#tg1.')) {
   try { grid.importShareHash(); shared = true; }
   catch { shareError = true; }
 }
-if (!shared) {
-  grid.sheetName = t('title');
-  grid.load([
-    ['Artikel', 'Kategorie', 'Lagerort', 'Bestand', 'Min. Bestand', 'Einzelwert', 'Lagerwert', 'Status'],
-    ['Akkuschrauber', 'Werkzeug', 'Wallersdorf', 8, 5, 89.9, '=D2*F2', '=IF(D2<E2,"Nachbestellen","OK")'],
-    ['Schutzhelm', 'Sicherheit', 'Wallersdorf', 3, 4, 42.5, '=D3*F3', '=IF(D3<E3,"Nachbestellen","OK")'],
-    ['Warnweste', 'Sicherheit', 'Landau', 24, 10, 8.9, '=D4*F4', '=IF(D4<E4,"Nachbestellen","OK")'],
-    ['Ladegerät', 'Elektronik', 'Landau', 6, 4, 34, '=D5*F5', '=IF(D5<E5,"Nachbestellen","OK")'],
-    ['Erste-Hilfe-Set', 'Sicherheit', 'Wallersdorf', 2, 3, 29.9, '=D6*F6', '=IF(D6<E6,"Nachbestellen","OK")'],
-    ['Messgerät', 'Elektronik', 'Dingolfing', 4, 2, 119, '=D7*F7', '=IF(D7<E7,"Nachbestellen","OK")'],
-    ['Werkzeugkoffer', 'Werkzeug', 'Dingolfing', 5, 3, 64.5, '=D8*F8', '=IF(D8<E8,"Nachbestellen","OK")'],
-    ['Kabeltrommel', 'Elektronik', 'Landau', 7, 5, 54.9, '=D9*F9', '=IF(D9<E9,"Nachbestellen","OK")'],
-    ['Handschuhe', 'Sicherheit', 'Dingolfing', 12, 8, 6.5, '=D10*F10', '=IF(D10<E10,"Nachbestellen","OK")']
-  ]);
-  grid.setCell(0,8,t('grossValue'));
-  for(let row=1;row<=9;row++)grid.setCell(row,8,`=G${row+1}*(1+@vat)`);
-  [170,135,135,90,110,115,125,145,130].forEach((width,col) => grid.setColumnWidth(col,width));
-  grid.createTable({r1:0,c1:0,r2:9,c2:8});
-  grid.selection={r1:1,c1:5,r2:9,c2:6};grid.formatSelection({type:'currency',currency:'EUR',maximumFractionDigits:2});
-  grid.selection={r1:1,c1:8,r2:9,c2:8};grid.formatSelection({type:'currency',currency:'EUR',maximumFractionDigits:2});
-  grid.setFreezePanes({rows:1,columns:1});
-  grid.setConditionalFormats([{range:{r1:1,c1:7,r2:9,c2:7},operator:'eq',value:'Nachbestellen',style:{color:'var(--tg-error)',backgroundColor:'var(--tg-error-bg)',fontWeight:'bold'}}]);
-  grid.setValidationRules([{range:{r1:1,c1:3,r2:9,c2:4},type:'integer',min:0,allowEmpty:false,message:t('stockValidation')}]);
-}
-grid.select(1,0);
+if (!shared) grid.sheetName = t('title');
+grid.select(0,0);
 grid.clearHistory();
+applyTheme();applyTypeface();
+// iOS keeps the layout viewport under the keyboard; follow the visual viewport so the cell editor stays visible.
+if(window.visualViewport){
+  const syncViewport=()=>{const v=visualViewport;if(Math.abs(v.scale-1)<.01){document.documentElement.style.setProperty('--app-height',`${Math.round(v.height)}px`);if(v.offsetTop>0)scrollTo(0,0);}};
+  visualViewport.addEventListener('resize',syncViewport);visualViewport.addEventListener('scroll',syncViewport);syncViewport();
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if(theme==='system')applyTheme();});
 
 let noticeTimer;
 function notify(message) {
@@ -64,7 +71,7 @@ function syncName() { $('#sheetName').value=grid.sheetName;$('#sheetTab').textCo
 function syncSelection() {
   const s=selection(),a=grid.anchor,cell=grid.getCell(a.row,a.col),style=cell.style||{};
   $('#nameBox').value=toA1(s.r1,s.c1)+(s.r1!==s.r2||s.c1!==s.c2?':'+toA1(s.r2,s.c2):'');
-  if(document.activeElement!==$('#formula'))$('#formula').value=grid.getRawValue(a.row,a.col)??'';
+  if(document.activeElement!==$('#formula'))$('#formula').value=rawText(grid.getRawValue(a.row,a.col));
   let count=0,sum=0,numbers=0;
   for(const key of grid.cells.keys()){
     const [r,c]=key.split(',').map(Number);if(r<s.r1||r>s.r2||c<s.c1||c>s.c2)continue;
@@ -79,8 +86,9 @@ function syncSelection() {
   $('#italicBtn').setAttribute('aria-pressed',String(style.fontStyle==='italic'));
   all('[data-align]').forEach(button=>button.setAttribute('aria-pressed',String(style.textAlign===button.dataset.align)));
   $('#numberFormat').value=(typeof cell.numberFormat==='string'?cell.numberFormat:cell.numberFormat?.type)||'general';
-  syncControls();syncName();
+  syncControls();syncName();jsonTools?.sync();
 }
+let jsonTools;
 const editableControls=['#boldBtn','#italicBtn','#clearStyleBtn','#numberFormat','#sumBtn','#tableBtn','#autoWidthBtn','#unhideBtn','#importBtn','#formulaApply','#sheetName'];
 function syncControls(){
   const locked=grid.readOnly;
@@ -111,10 +119,20 @@ function applyLanguage(){
   all('[data-label]').forEach(el=>{el.setAttribute('aria-label',t(el.dataset.label));el.title=t(el.dataset.label);});
   all('[data-title]').forEach(el=>el.title=t(el.dataset.title));
   all('[data-placeholder]').forEach(el=>el.placeholder=t(el.dataset.placeholder));
-  grid.setLocale(language);syncSelection();refreshPivotFields();renderPivot();refreshSearch(false);refreshFunctionHelp();refreshReferences();
+  grid.setLocale(language);syncSelection();refreshPivotFields();renderPivot();refreshSearch(false);refreshFunctionHelp();refreshReferences();syncFreezeControls();
 }
 $('#language').onchange=()=>{language=$('#language').value;savePreference('language',language);applyLanguage();};
-$('#theme').onchange=()=>{theme=$('#theme').value;document.documentElement.dataset.theme=theme;savePreference('theme',theme);};
+function chooseTheme(name){theme=name;savePreference('theme',theme);applyTheme();}
+const themeButtons=all('[data-theme-choice]');
+themeButtons.forEach((button,index)=>{
+  button.onclick=()=>chooseTheme(button.dataset.themeChoice);
+  button.onkeydown=e=>{
+    const next={ArrowRight:index+1,ArrowDown:index+1,ArrowLeft:index-1,ArrowUp:index-1,Home:0,End:themeButtons.length-1}[e.key];
+    if(next===undefined)return;e.preventDefault();const target=themeButtons[(next+themeButtons.length)%themeButtons.length];chooseTheme(target.dataset.themeChoice);target.focus();
+  };
+});
+$('#appearanceBtn').onclick=()=>showDialog('#appearanceDialog');$('#closeAppearance').onclick=()=>$('#appearanceDialog').close();
+$('#typeface').onchange=()=>{typeface=$('#typeface').value;savePreference('typeface',typeface);applyTypeface();};
 
 $('#sheetTab').onclick=()=>{if(!grid.readOnly){$('#sheetName').focus();$('#sheetName').select();}};
 $('#sheetName').onchange=()=>{const name=$('#sheetName').value.trim();if(name&&!grid.readOnly&&name!==grid.sheetName){grid.setSheetName(name);}syncName();};
@@ -171,7 +189,18 @@ $('#nameBox').onkeydown=e=>{if(e.key!=='Enter')return;e.preventDefault();const [
 function undo(){if(grid.undo())notify(t('undone'));}
 function redo(){if(grid.redo())notify(t('redone'));}
 $('#undoBtn').onclick=undo;$('#redoBtn').onclick=redo;
-$('#vatRate').onchange=()=>grid.setExternalVariable('vat',Number($('#vatRate').value));
+function syncFreezeControls(){
+  const {rows,columns}=grid.freezePanes;
+  $('#freezeStatus').textContent=`${t('rows')}: ${rows} · ${t('columns')}: ${columns}`;
+  $('#unfreezeBtn').disabled=!rows&&!columns;
+  $('#freezeSelectionBtn').disabled=grid.anchor.row===0&&grid.anchor.col===0;
+}
+$('#freezeRowBtn').onclick=()=>grid.setFreezePanes({rows:1});
+$('#freezeColumnBtn').onclick=()=>grid.setFreezePanes({columns:1});
+$('#freezeSelectionBtn').onclick=()=>{const {row,col}=grid.anchor;if(grid.rowOffsets[row]>=grid.scroll.clientHeight-31||grid.colOffsets[col]>=grid.scroll.clientWidth-48){notify(t('freezeTooLarge'));return}grid.setFreezePanes({rows:row,columns:col});};
+$('#unfreezeBtn').onclick=()=>grid.setFreezePanes({rows:0,columns:0});
+for(const event of ['freezepanes','select','change'])grid.on(event,syncFreezeControls);
+syncFreezeControls();
 $('#recalculateBtn').onclick=()=>{grid.recalculate();notify(t('recalculated'));};
 $('#readOnlyBtn').onclick=()=>grid.setReadOnly(!grid.readOnly);
 $('#boldBtn').onclick=()=>grid.styleSelection({fontWeight:grid.getCell(grid.anchor.row,grid.anchor.col).style?.fontWeight==='bold'?'normal':'bold'});
@@ -191,19 +220,9 @@ $('#clearFiltersBtn').onclick=()=>grid.clearFilters();
 $('#autoWidthBtn').onclick=()=>{if(grid.readOnly)return;const s=selection();grid.transaction(()=>{for(let c=s.c1;c<=s.c2;c++)grid.autoFitColumn(c);});};
 $('#unhideBtn').onclick=()=>{if(!grid.readOnly){grid.transaction(()=>{grid.showAllRows();grid.showAllColumns();});}};
 
-let matches=[],matchIndex=-1;
-function openSearch(){ $('#searchBar').hidden=false;$('#search').focus();$('#search').select(); }
-function refreshSearch(move=true){
-  const query=$('#search').value.toLocaleLowerCase(language);matches=[];matchIndex=-1;
-  if(query)for(const [key,cell] of grid.cells){const [row,col]=key.split(',').map(Number);if(grid.hiddenRows.has(row)||grid.filteredRows.has(row)||grid.hiddenColumns.has(col))continue;if(`${cell.raw??''} ${fmt(grid.getComputedValue(row,col))}`.toLocaleLowerCase(language).includes(query))matches.push({row,col});}
-  matches.sort((a,b)=>a.row-b.row||a.col-b.col);
-  if(move&&matches.length)goToMatch(1);else $('#searchResult').textContent=query?`${matches.length} ${t('matches')}`:'';
-}
-function goToMatch(direction){if(!matches.length){$('#searchResult').textContent=t('noMatches');return;}matchIndex=(matchIndex+direction+matches.length)%matches.length;const p=matches[matchIndex];grid.goTo(p.row,p.col);$('#searchResult').textContent=`${matchIndex+1} / ${matches.length} ${t('matches')}`;}
-$('#findBtn').onclick=openSearch;$('#search').oninput=()=>refreshSearch();$('#searchBar').onsubmit=e=>{e.preventDefault();goToMatch(1);};$('#previousMatch').onclick=()=>goToMatch(-1);
-function closeSearch(){$('#searchBar').hidden=true;grid.el.focus({preventScroll:true});}
-$('#closeSearch').onclick=closeSearch;$('#searchBar').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();closeSearch();}};
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]')){e.preventDefault();openSearch();}});
+installCharts({grid,$,t:key=>t(key),notify,selection,getLanguage:()=>language});
+const searchTools=installSearch({grid,$,t:key=>t(key),notify,selection});
+const refreshSearch=searchTools.refresh,openSearch=searchTools.open;
 
 // Text fields keep native text undo until their edit is committed. Commands
 // from the grid are already handled there; toolbar focus also supports undo.
@@ -287,13 +306,29 @@ $('#dataFile').onchange=async()=>{const file=$('#dataFile').files?.[0];if(!file)
 $('#applyImport').onclick=async()=>{if(!pendingImport||grid.readOnly)return;const pending=pendingImport;try{await grid.importFile(pending.file,{locale:pending.locale,inferTypes:$('#inferImportTypes').checked});if(!grid.table&&!/\.json$/i.test(pending.file.name))grid.createTable(grid.getUsedRange());syncData();$('#importDialog').close();notify(`${t('imported')}: ${pending.file.name}`);}catch(error){fail(error);}};
 
 function download(filename,content,type){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-$('#downloadBtn').onclick=()=>{try{
-  const format=$('#exportFormat').value,base=grid.sheetName.replace(/[\\/:*?"<>|]/g,'-')||'tiny-datagrid';
-  const formats={workbook:()=>['json',JSON.stringify(grid.exportWorkbook(),null,2),'application/json'],csv:()=>['csv',grid.exportCSV(),'text/csv'],tsv:()=>['tsv',grid.exportTSV(),'text/tab-separated-values'],json:()=>['json',JSON.stringify(grid.exportJSON(),null,2),'application/json'],html:()=>['html',grid.exportHTML(),'text/html'],markdown:()=>['md',grid.exportMarkdown(),'text/markdown']};
-  const [ext,content,type]=formats[format]();download(`${base}.${ext}`,content,`${type};charset=utf-8`);$('#exportDialog').close();notify(t('downloaded'));
-}catch(error){fail(error);}};
+const fileBase=()=>grid.sheetName.replace(/[\\/:*?"<>|]/g,'-')||'tiny-datagrid';
+function saveWorkbook(){if(grid.commitEdit()===false)return;download(`${fileBase()}.json`,JSON.stringify(grid.exportWorkbook(),null,2),'application/json;charset=utf-8');notify(t('downloaded'));}
+$('#fileLoadBtn').onclick=()=>{if(!grid.readOnly)showDialog('#importDialog');};
+$('#fileSaveBtn').onclick=()=>{try{saveWorkbook()}catch(error){fail(error)}};
+$('#fileExportBtn').onclick=()=>showDialog('#exportDialog');
+$('#loadDemoBtn').onclick=()=>{if(grid.readOnly||grid.commitEdit()===false)return;try{grid.importWorkbook(demoWorkbook($('#demoContents').value,language),{replace:true});grid.scroll.scrollTop=0;grid.scroll.scrollLeft=0;grid.select(0,0);syncData();notify(t('demoLoaded'));}catch(error){fail(error)}};
+$('#exportFormat').onchange=()=>{$('#exportRange').disabled=$('#exportFormat').value==='workbook';};
+$('#exportRange').disabled=true;
+$('#downloadBtn').onclick=async()=>{const button=$('#downloadBtn');try{
+  if(grid.commitEdit()===false)return;
+  const format=$('#exportFormat').value,base=fileBase(),range=$('#exportRange').value==='selection'?selection():grid.getUsedRange();
+  if(format==='pdf'){printPDF(grid,range);$('#exportDialog').close();return}
+  if(format==='png'){button.disabled=true;download(`${base}.png`,await exportPNG(grid,range),'image/png');}
+  else{
+    const formats={workbook:()=>['json',JSON.stringify(grid.exportWorkbook(),null,2),'application/json'],csv:()=>['csv',grid.exportCSV({range}),'text/csv'],tsv:()=>['tsv',grid.exportTSV({range}),'text/tab-separated-values'],json:()=>['json',JSON.stringify(grid.exportJSON({range}),(_,value)=>typeof value==='bigint'?String(value):value,2),'application/json'],html:()=>['html',grid.exportHTML({range}),'text/html'],markdown:()=>['md',grid.exportMarkdown({range}),'text/markdown']};
+    const [ext,content,type]=formats[format]();download(`${base}.${ext}`,content,`${type};charset=utf-8`);
+  }
+  $('#exportDialog').close();notify(t('downloaded'));
+}catch(error){fail(error);}finally{button.disabled=false}};
 $('#shareBtn').onclick=()=>{try{grid.commitEdit();$('#shareURL').value=grid.createShareURL();$('#shareFeedback').textContent=$('#shareURL').value.length>12000?t('longLink'):'';showDialog('#shareDialog');}catch(error){fail(error);}};
 $('#shareURL').onclick=()=>$('#shareURL').select();
 $('#copyLinkBtn').onclick=async()=>{try{await navigator.clipboard.writeText($('#shareURL').value);$('#shareFeedback').textContent=t('copied');}catch{$('#shareURL').focus();$('#shareURL').select();$('#shareFeedback').textContent=t('manualCopy');}};
+jsonTools=installJSONTools({grid,$,t:key=>t(key),notify,showDialog,selection});
+attachFormulaAssist(grid.editor,grid,{language:()=>language});attachFormulaAssist($('#formula'),grid,{language:()=>language});
 applyLanguage();
 if(shareError)notify(t('invalidLink'));

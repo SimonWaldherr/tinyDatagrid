@@ -38,10 +38,10 @@ export function worksheets(){return {name:'worksheets',setup(grid){
       get variables(){return sheets.get(id).state?.variables||sheets.get(id).readVariables},
       get cells(){return sheets.get(id).state?.cells||sheets.get(id).readCells},
       get sqlBinding(){return sheets.get(id).state?.sqlBinding||null},
-      feature:name=>name==='worksheets'?api:name==='pivots'&&grid.feature('pivots')?(pivotController??=grid.feature('pivots').forGrid(view)):undefined,
+      feature:name=>name==='worksheets'?api:name==='dynamicArrays'?grid.feature('dynamicArrays'):name==='pivots'&&grid.feature('pivots')?(pivotController??=grid.feature('pivots').forGrid(view)):undefined,
       _calculationKey:key=>JSON.stringify([id,key]),
       key:TinyDatagrid.prototype.key,getCell:TinyDatagrid.prototype.getCell,
-      getRawValue:TinyDatagrid.prototype.getRawValue,getComputedValue:TinyDatagrid.prototype.getComputedValue,getVariable:TinyDatagrid.prototype.getVariable
+      getRawValue:TinyDatagrid.prototype.getRawValue,getComputedValue:TinyDatagrid.prototype.getComputedValue,getVariable:TinyDatagrid.prototype.getVariable,_spillValue:TinyDatagrid.prototype._spillValue,getSpill:TinyDatagrid.prototype.getSpill
     };
     view.engine=new FormulaEngine(view);view.engine.cache=grid.engine.cache;view.engine.dependencies=grid.engine.dependencies;
     view.engine.functions=grid.engine.functions;view.engine._customFunctions=grid.engine._customFunctions;

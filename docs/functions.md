@@ -7,8 +7,8 @@ functions are built in; no registration, network request, or API key is needed.
 Numeric arguments accept numbers or numeric strings, but reject empty cells,
 booleans, arrays, and nonnumeric text. Invalid argument types/counts produce
 `#VALUE!`; invalid numeric domains or nonfinite results produce `#NUM!`.
-Existing formula errors propagate. Arrays are returned as values and can feed
-`INDEX`, `MAP`, etc.; they do not spill into neighboring cells.
+Existing formula errors propagate. Arrays can feed `INDEX`, `MAP`, and other
+functions, or spill into neighboring cells when returned from a cell formula.
 
 ## Geographic coordinates
 
@@ -214,8 +214,9 @@ Replacement follows JavaScript replacement-string semantics (`$1`, `$2`,
 `$<name>`, `$&`, `$$`, etc.). Use `REPLACEALL` for literal replacements.
 Regex split includes captured separators, as JavaScript split does; use
 noncapturing groups `(?:...)` to omit them. Unmatched captures become empty
-strings. Arrays do not spill; pass them to `INDEX`, `TEXTJOIN`, and other array
-functions.
+strings. Array results spill from a formula cell when space is available; use
+`A1#` to refer to a spilled result or pass arrays to `INDEX`, `TEXTJOIN`, and
+other array functions.
 
 ```text
 =REGEXP("MARCH1"; "^[A-Z]+[0-9]+$")

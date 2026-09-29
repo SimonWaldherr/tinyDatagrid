@@ -20,6 +20,54 @@
       "types": "./src/style.d.ts",
       "default": "./src/tinygrid.css"
     },
+    "./themes.css": {
+      "types": "./src/style.d.ts",
+      "default": "./src/themes.css"
+    },
+    "./json-tools.css": {
+      "types": "./src/style.d.ts",
+      "default": "./src/json-tools.css"
+    },
+    "./search-tools.css": {
+      "types": "./src/style.d.ts",
+      "default": "./src/search-tools.css"
+    },
+    "./charts.css": {
+      "types": "./src/style.d.ts",
+      "default": "./src/charts.css"
+    },
+    "./formula-assist.css": {
+      "types": "./src/style.d.ts",
+      "default": "./src/formula-assist.css"
+    },
+    "./exporters": {
+      "types": "./src/exporters.d.ts",
+      "import": "./src/exporters.js"
+    },
+    "./charts": {
+      "types": "./src/charts.d.ts",
+      "import": "./src/charts.js"
+    },
+    "./search-tools": {
+      "types": "./src/search-tools.d.ts",
+      "import": "./src/search-tools.js"
+    },
+    "./formula-assist": {
+      "types": "./src/formula-assist.d.ts",
+      "import": "./src/formula-assist.js"
+    },
+    "./feature-i18n": {
+      "types": "./src/feature-i18n.d.ts",
+      "import": "./src/feature-i18n.js"
+    },
+    "./json-tools": {
+      "types": "./src/json-tools.d.ts",
+      "import": "./src/json-tools.js"
+    },
+    "./json": {
+      "types": "./src/json-values.d.ts",
+      "import": "./src/json-values.js"
+    },
     "./features": {
       "types": "./src/features.d.ts",
       "import": "./src/features.js"
@@ -51,7 +99,7 @@
     "**/*.css"
   ],
   "scripts": {
-    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs",
+    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs",
     "benchmark": "node benchmarks/recalculation.mjs"
   }
 }

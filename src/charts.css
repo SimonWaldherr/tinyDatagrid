@@ -1,0 +1,29 @@
+/* Optional styles and theme-aware colors for installCharts() host markup. */
+:root{--viz-1:#2a78d6;--viz-2:#eb6834;--viz-3:#1baf7a;--viz-4:#eda100;--viz-5:#e87ba4;--viz-6:#008300;--viz-7:#4a3aa7;--viz-8:#e34948;--viz-other:#898781;--viz-axis:color-mix(in srgb,var(--tg-muted,#586d67) 55%,var(--tg-panel,#fff))}
+:root[data-theme="dark"],:root[data-theme="midnight"],:root[data-theme="graphite"]{--viz-1:#3987e5;--viz-2:#d95926;--viz-3:#199e70;--viz-4:#c98500;--viz-5:#d55181;--viz-6:#008300;--viz-7:#9085e9;--viz-8:#e66767}
+@media(prefers-color-scheme:dark){:root:not([data-theme]),:root[data-theme="system"]{--viz-1:#3987e5;--viz-2:#d95926;--viz-3:#199e70;--viz-4:#c98500;--viz-5:#d55181;--viz-6:#008300;--viz-7:#9085e9;--viz-8:#e66767}}
+#chartDialog.wide{width:min(820px,calc(100vw - 24px))}
+.chart-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:10px 0}
+.chart-controls .inline,.chart-controls .check{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--tg-muted,#586d67)}
+.chart-controls .check{gap:6px}
+.chart-controls .toggle{min-height:32px;padding:3px 12px;font-size:12px}
+.chart-controls .toggle[aria-pressed="true"]{background:var(--tg-hover,#e5f3ed);border-color:var(--tg-accent,#167761);color:var(--tg-accent,#167761)}
+.viz-stage{position:relative;border:1px solid var(--tg-border,#dce3e3);border-radius:10px;background:var(--tg-panel,#fff);padding:6px 4px;min-height:260px}
+.viz-plot{outline-offset:2px;border-radius:8px;color:var(--tg-text,#243532);font-size:13px}
+.viz-plot svg{display:block;margin:0 auto;width:100%;max-width:720px;height:auto;stroke:none;stroke-width:1;fill:currentColor;stroke-linecap:butt;stroke-linejoin:miter}
+.viz-plot:not(:has(svg)){padding:40px 24px;text-align:center;color:var(--tg-muted,#586d67)}
+.viz-tooltip{position:absolute;z-index:5;pointer-events:none;min-width:130px;max-width:260px;padding:8px 10px;border-radius:8px;background:var(--tg-panel,#fff);color:var(--tg-text,#243532);border:1px solid var(--tg-border,#dce3e3);box-shadow:0 8px 24px #0002;font-size:12px}
+.viz-tip-head{color:var(--tg-muted,#586d67);margin-bottom:5px;overflow-wrap:anywhere}
+.viz-tip-row{display:grid;grid-template-columns:14px auto 1fr;align-items:center;gap:7px;line-height:1.6}
+.viz-tip-row strong{font-weight:650;font-variant-numeric:tabular-nums;color:var(--tg-text,#243532)}
+.viz-tip-row span:last-child{color:var(--tg-muted,#586d67);overflow-wrap:anywhere}
+.viz-tip-key{width:10px;height:10px;border-radius:2px}
+.viz-tip-key.line{height:2px;width:14px;border-radius:2px}
+.viz-table{max-height:380px;overflow:auto}
+.viz-table table{border-collapse:collapse;width:100%;font-size:12px}
+.viz-table caption{text-align:left;color:var(--tg-muted,#586d67);padding:6px 10px}
+.viz-table th,.viz-table td{padding:6px 10px;border-bottom:1px solid var(--tg-border,#dce3e3);text-align:right;font-variant-numeric:tabular-nums}
+.viz-table th:first-child,.viz-table td:first-child{text-align:left}
+.viz-table thead th{position:sticky;top:0;background:var(--tg-header,#eaf3ee);font-weight:600}
+@media(forced-colors:active){.viz-plot svg [data-series],.viz-plot svg [data-slice],.viz-plot svg [data-key]{forced-color-adjust:none;stroke:CanvasText;stroke-width:1}.viz-plot svg [data-tex="0"]{fill:url(#viz-tex-0)}.viz-plot svg [data-tex="1"]{fill:url(#viz-tex-1)}.viz-plot svg [data-tex="2"]{fill:url(#viz-tex-2)}.viz-plot svg [data-tex="3"]{fill:url(#viz-tex-3)}.viz-plot svg path[data-line],.viz-plot svg line[data-line]{forced-color-adjust:none;fill:none;stroke:CanvasText}.viz-plot svg [data-line="1"]{stroke-dasharray:7 4}.viz-plot svg [data-line="2"]{stroke-dasharray:2 4}.viz-plot svg [data-line="3"]{stroke-dasharray:10 3 2 3}}
+@media(pointer:coarse){.chart-controls .toggle{min-height:40px}}
