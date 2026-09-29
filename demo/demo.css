@@ -153,3 +153,16 @@ body{-webkit-tap-highlight-color:transparent;touch-action:manipulation;overscrol
 .tools-grid button svg{width:18px;height:18px;color:var(--accent)}
 .tools-group{gap:3px}
 @media(max-width:700px){.tools-grid{grid-template-columns:repeat(2,max-content)}}
+
+
+/* Data cleanup dialogs */
+.check{display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0}
+.check input{width:16px;height:16px;min-height:0;flex:none}
+.column-picker{border:1px solid var(--line);border-radius:8px;padding:6px 12px 10px;margin:12px 0}
+.column-picker legend{font-size:11px;color:var(--muted);padding:0 6px}
+.check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px 14px}
+.split-options{display:flex;gap:10px;align-items:flex-end;margin-bottom:6px}
+.split-options .stack{flex:1}
+#splitPreview{max-height:170px}
+#splitPreview table{border-collapse:collapse;font-size:12px}
+#splitPreview td{padding:5px 9px;border:1px solid var(--line);white-space:nowrap}

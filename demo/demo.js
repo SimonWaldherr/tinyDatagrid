@@ -16,6 +16,7 @@ import { rawText } from '../src/json-values.js';
 import { installJSONTools } from '../src/json-tools.js';
 import { installSearch } from '../src/search-tools.js';
 import { installCharts } from '../src/charts.js';
+import { installDataTools } from '../src/data-tools.js';
 import { attachFormulaAssist, installFormulaTools } from '../src/formula-assist.js';
 
 const $ = selector => document.querySelector(selector);
@@ -135,7 +136,7 @@ function applyLanguage(){
   all('[data-label]').forEach(el=>{el.setAttribute('aria-label',t(el.dataset.label));el.title=t(el.dataset.label);});
   all('[data-title]').forEach(el=>el.title=t(el.dataset.title));
   all('[data-placeholder]').forEach(el=>el.placeholder=t(el.dataset.placeholder));
-  grid.setLocale(language);syncSelection();refreshPivotFields();renderPivot();refreshSearch(false);formulaTools?.refreshFunctionHelp();formulaTools?.refreshReferences();syncFreezeControls();
+  grid.setLocale(language);grid.feature('worksheetTabs')?.render();syncSelection();refreshPivotFields();renderPivot();refreshSearch(false);formulaTools?.refreshFunctionHelp();formulaTools?.refreshReferences();syncFreezeControls();
 }
 $('#language').onchange=()=>{language=$('#language').value;savePreference('language',language);applyLanguage();};
 function chooseTheme(name){theme=name;savePreference('theme',theme);applyTheme();}
@@ -219,6 +220,7 @@ $('#autoWidthBtn').onclick=()=>{if(grid.readOnly)return;const s=selection();grid
 $('#unhideBtn').onclick=()=>{if(!grid.readOnly){grid.transaction(()=>{grid.showAllRows();grid.showAllColumns();});}};
 
 installCharts({grid,$,t:key=>t(key),notify,selection,getLanguage:()=>language});
+installDataTools({grid,$,t:key=>t(key),notify,selection,showDialog});
 const searchTools=installSearch({grid,$,t:key=>t(key),notify,selection});
 const refreshSearch=searchTools.refresh,openSearch=searchTools.open;
 formulaTools=installFormulaTools({grid,$,t:key=>t(key),language:()=>language,formatValue:fmt});

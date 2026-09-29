@@ -10,6 +10,7 @@ import TinyDatagrid from 'tiny-datagrid';
 import { installJSONTools } from 'tiny-datagrid/json-tools';
 import { installSearch } from 'tiny-datagrid/search-tools';
 import { installCharts } from 'tiny-datagrid/charts';
+import { installDataTools, removeDuplicateRows, trimSpaces, splitTextToColumns } from 'tiny-datagrid/data-tools';
 import { attachFormulaAssist, installFormulaTools } from 'tiny-datagrid/formula-assist';
 import { exportPNG, printPDF } from 'tiny-datagrid/exporters';
 import { featureTranslator } from 'tiny-datagrid/feature-i18n';
@@ -36,6 +37,7 @@ const showDialog = selector => { grid.commitEdit(); $(selector).showModal(); };
 const search = installSearch({ grid, $, t, notify, selection });
 const charts = installCharts({ grid, $, t, notify, selection });
 const json = installJSONTools({ grid, $, t, notify, showDialog, selection });
+const cleanup = installDataTools({ grid, $, t, notify, selection, showDialog });
 grid.on('select', json.sync);
 grid.on('change', json.sync);
 grid.on('readonly', json.sync);
@@ -79,6 +81,11 @@ and includes labels, dialog semantics, and responsive structure.
   `#jsonStatus`, `#jsonTree`, `#jsonPath`, `#jsonFormat`, `#jsonMinify`,
   `#jsonSaveCompact`, `#jsonAsValue`, `#jsonApply`, `#closeJson`,
   `#jsonCopyPath`, and `#jsonInsertGet`.
+- Data cleanup: `#dedupeBtn`, `#trimBtn`, `#splitTextBtn`, and the two dialogs:
+  `#dedupeDialog` with `#dedupeForm`, `#closeDedupe`, `#dedupeIntro`, `#dedupeHeader`,
+  `#dedupeCase`, `#dedupeColumns`; `#splitTextDialog` with `#splitForm`,
+  `#closeSplitText`, `#splitIntro`, `#splitDelimiter`, `#splitCustom`,
+  `#splitCollapse`, `#splitQuotes`, `#splitPreview`, `#splitApply`.
 - Formula assistance attaches to any input or textarea. The grid's editor is
   `grid.editor`; a host formula bar can use the same `attachFormulaAssist()` API.
   Optional function help and precedent/dependent tracing use
@@ -108,7 +115,30 @@ can choose Save as PDF. Both helpers render computed values and visible cells,
 and respect the active theme, cell formatting, and conditional formatting.
 They export the selected or used sheet area without the application's toolbar.
 
-The Home ribbon groups AutoSum, charts, pivot tables, search, recalculation,
+The General ribbon tab groups AutoSum, charts, pivot tables, search, recalculation,
 function help, cell references, and column fitting in a compact tools area.
 Pivot opens the sidebar settings, where the summary can be inserted into the
 sheet. Function help and references focus their respective panels for keyboard use.
+
+## Data cleanup
+
+`installDataTools` adds three commands that work on the selection (or on the block
+of data around a single selected cell):
+
+- **Remove duplicates** compares rows by their computed values and ignores outer spaces.
+  Case is ignored too, unless you ask to match it. You can choose the columns and mark a header row. The first
+  occurrence stays, later ones are removed, and the rows below move up inside the
+  range; formulas and formats move with their row. It is one undo step and refuses
+  ranges that contain spilled array results.
+- **Clean up spaces** trims entered text, collapses runs of spaces and tabs, and turns
+  non-breaking spaces into ordinary ones. Line breaks, formulas, numbers and JSON
+  text stay as they are.
+- **Text to columns** splits the text of the first selected column at a comma, semicolon,
+  tab, space, `|` or any text you type, with a preview. Quoted parts stay together,
+  consecutive delimiters can count as one, and the parts are typed like ordinary
+  input (`31` becomes a number). If a cell on the right already has content nothing is
+  changed.
+
+The same operations are available without any UI: `removeDuplicateRows(grid, range,
+{ columns, hasHeader, matchCase })`, `trimSpaces(grid, range)`, and
+`splitTextToColumns(grid, range, { delimiter, collapse, quotes })`.

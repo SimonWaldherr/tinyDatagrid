@@ -67,7 +67,40 @@ textarea.tg-editor{resize:both;white-space:pre;min-height:28px;max-height:240px;
 .tg-cell.tg-json{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;color:var(--tg-json,var(--tg-accent))}
 .tg-cell.tg-json-array::before,.tg-cell.tg-json-object::before{content:"";display:inline-block;width:.5em;height:.5em;margin-right:.45em;border-radius:1px;background:currentColor;opacity:.55;vertical-align:baseline}
 .tg-cell.tg-json-array::before{border-radius:50%}
-.tg-cell.tg-spilled{background-image:linear-gradient(var(--tg-spill,transparent),var(--tg-spill,transparent))}
+/* Dynamic array results: a faint wash and hairline outline show the range one formula fills */
+.tg-root{--tg-spill-line:color-mix(in srgb,var(--tg-accent) 60%,transparent);--tg-spill:color-mix(in srgb,var(--tg-accent) 6%,transparent)}
+.tg-cell.tg-spilled{background-image:linear-gradient(var(--tg-spill),var(--tg-spill));box-shadow:var(--sp-t,0 0 #0000),var(--sp-b,0 0 #0000),var(--sp-l,0 0 #0000),var(--sp-r,0 0 #0000)}
+.tg-cell.tg-spill-t{--sp-t:inset 0 1px 0 var(--tg-spill-line)}
+.tg-cell.tg-spill-b{--sp-b:inset 0 -1px 0 var(--tg-spill-line)}
+.tg-cell.tg-spill-l{--sp-l:inset 1px 0 0 var(--tg-spill-line)}
+.tg-cell.tg-spill-r{--sp-r:inset -1px 0 0 var(--tg-spill-line)}
 
 
 .tg-cell-menu{max-height:calc(100% - 12px);overflow-y:auto}.tg-worksheet-bar{display:flex;align-items:center;gap:6px;min-width:0}.tg-worksheet-list{display:flex;gap:4px;overflow-x:auto;scrollbar-width:thin;min-width:0}.tg-worksheet-bar button{font:inherit;padding:8px 12px;border:1px solid var(--tg-border,#bccbc5);border-radius:5px;background:var(--tg-panel,var(--panel,#fff));color:var(--tg-text,var(--text,#243532));cursor:pointer;white-space:nowrap}.tg-worksheet-tab[aria-selected=true]{border-bottom:3px solid var(--tg-accent,var(--accent,#167761));font-weight:650}.tg-worksheet-dialog{max-width:min(420px,90vw);border:1px solid var(--tg-border,#bccbc5);border-radius:8px;padding:20px;background:var(--tg-panel,var(--panel,#fff));color:var(--tg-text,var(--text,#243532))}.tg-worksheet-dialog form{display:flex;gap:10px;flex-wrap:wrap}.tg-worksheet-dialog label{display:grid;gap:8px;width:100%}.tg-worksheet-dialog input{font:inherit;padding:8px}.tg-worksheet-dialog::backdrop{background:#0006}
+
+
+/* Worksheet tabs: colors, inline rename, drag reordering and the context menu */
+.tg-worksheet-bar .tg-worksheet-tab{position:relative}
+.tg-worksheet-tab.has-color::after{content:"";position:absolute;left:10px;right:10px;bottom:2px;height:3px;border-radius:3px;background:var(--tab-color)}
+.tg-worksheet-tab.has-color[aria-selected=true]{border-bottom-color:var(--tab-color)}
+.tg-worksheet-tab.drop-before{box-shadow:inset 3px 0 0 var(--tg-accent,var(--accent,#167761))}
+.tg-worksheet-tab.drop-after{box-shadow:inset -3px 0 0 var(--tg-accent,var(--accent,#167761))}
+.tg-worksheet-rename{font:inherit;box-sizing:border-box;padding:7px 10px;min-width:8ch;border:2px solid var(--tg-accent,var(--accent,#167761));border-radius:5px;background:var(--tg-bg,var(--panel,#fff));color:var(--tg-text,var(--text,#243532));outline:none}
+.tg-worksheet-rename[aria-invalid=true]{border-color:var(--tg-error,#b42318)}
+.tg-sheet-menu{position:fixed;width:auto;min-width:236px;max-width:min(340px,calc(100vw - 12px));max-height:calc(100dvh - 12px);overflow-y:auto;z-index:70}
+.tg-sheet-menu .tg-menu-item{display:flex;justify-content:space-between;align-items:center;gap:22px}
+.tg-menu-shortcut{color:var(--tg-muted);font-size:11.5px}
+.tg-menu-item.danger:not(:disabled){color:var(--tg-error,#b42318)}
+.tg-sheet-colors{display:flex;flex-wrap:wrap;gap:8px;padding:2px 10px 8px}
+.tg-sheet-color{width:22px;height:22px;padding:0;border-radius:50%;border:2px solid transparent;background:var(--swatch);cursor:pointer}
+.tg-sheet-color.none{border-color:var(--tg-border);background:linear-gradient(135deg,transparent 44%,var(--tg-error,#b42318) 46% 54%,transparent 56%)}
+.tg-sheet-color[aria-checked=true]{outline:2px solid var(--tg-text);outline-offset:2px}
+.tg-sheet-color:focus-visible{outline:2px solid var(--tg-accent);outline-offset:2px}
+.tg-sheet-menu .tg-sheet-color{min-width:0;min-height:0;flex:0 0 auto;aspect-ratio:1}
+.tg-sheet-color:disabled{opacity:.4;cursor:not-allowed}
+.tg-worksheet-dialog h2{margin:0 0 8px;font-size:16px}
+.tg-worksheet-dialog p{margin:0 0 16px;line-height:1.5}
+.tg-worksheet-actions{display:flex;justify-content:flex-end;gap:8px}
+.tg-worksheet-dialog button.danger{background:var(--tg-error,#b42318);border-color:var(--tg-error,#b42318);color:#fff}
+@media(pointer:coarse){.tg-sheet-color{width:30px;height:30px}.tg-sheet-colors{gap:10px}}
+@media(forced-colors:active){.tg-worksheet-tab.has-color::after{background:Highlight}.tg-sheet-color[aria-checked=true]{outline-color:Highlight}}

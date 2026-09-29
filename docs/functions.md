@@ -9,6 +9,8 @@ booleans, arrays, and nonnumeric text. Invalid argument types/counts produce
 `#VALUE!`; invalid numeric domains or nonfinite results produce `#NUM!`.
 Existing formula errors propagate. Arrays can feed `INDEX`, `MAP`, and other
 functions, or spill into neighboring cells when returned from a cell formula.
+The `JSON.*` functions are documented in [JSON values and formulas](json.md); spilling
+and element-wise calculation in [Dynamic arrays](arrays.md).
 
 ## Geographic coordinates
 

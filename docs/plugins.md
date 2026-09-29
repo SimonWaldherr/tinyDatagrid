@@ -100,7 +100,11 @@ const sheets = grid.feature('worksheets');
 const id = sheets.add('Forecast');
 sheets.select(id);
 sheets.rename(id, 'Forecast 2027');
-console.log(sheets.list()); // [{ id, name }, ...]
+console.log(sheets.list()); // [{ id, name, color, hidden }, ...] in tab order
+const copy = sheets.duplicate(id);      // "Forecast 2027 (2)", inserted after the source
+sheets.move(copy, 0);                   // reorder (zero-based, hidden sheets count)
+sheets.setColor(copy, '#eb6834');       // tab color, or null to clear it
+sheets.setHidden(copy, true);           // hide a tab; one sheet always stays visible
 // sheets.remove(id); // At least one sheet must remain.
 ```
 
@@ -386,11 +390,31 @@ closes it. Clipboard actions use the browser Clipboard API and report failures
 through `contextmenuerror` (`{error}`). Custom items append to the built-in actions.
 Row and column headers keep their existing axis menus.
 
-The tab bar offers `+`, sheet switching, and double-click/right-click/F2 to rename
-or delete a sheet. Deletion requires a second confirmation and cannot remove the
-last sheet. Sheet deletion is not undoable. Names must be nonempty and unique;
-mutations respect read-only mode. Tab UI failures emit `worksheeterror` (`{error}`).
-Both UI plugins accept `translate(key)`; German and English defaults are included.
+The tab bar offers `+`, sheet switching, and a **sheet menu**. Right-click a tab,
+press the Menu key or Shift+F10 on a focused tab, or long-press it on a touch
+screen to open the menu. It contains:
+
+- **Insert new sheet** (after the current one), **Rename**, and **Duplicate**.
+  Double-click or F2 renames directly inside the tab: Enter confirms, Escape
+  cancels, and a name that is empty or already used is refused with a message.
+- **Move left / Move right**. With a mouse, tabs can also be dragged to a new
+  position; a marker shows where the tab will land.
+- **Color**, a row of eight tab colors plus "no color". The color is stored with
+  the workbook and shown as a stripe under the tab.
+- **Hide** and, once a sheet is hidden, **Show: name** entries in the menu of any
+  visible tab. Hidden sheets stay part of the workbook and can still be
+  referenced by formulas; at least one sheet always stays visible.
+- **Delete sheet …**, which asks for confirmation. It cannot remove the last
+  sheet and is not undoable.
+
+Arrow keys move through the menu, Home/End jump to the first or last entry,
+Escape closes it and returns focus to the tab. Names must be unique;
+mutations respect read-only mode and are disabled while a SQL result is
+attached. Tab UI failures emit `worksheeterror` (`{error}`). Model changes emit
+`worksheet` with `type` `add`, `remove`, `rename`, `duplicate`, `move`, `color`,
+`hide`, `show`, or `select`. Both UI plugins accept `translate(key)`; the tab
+bar uses German, English, French, Spanish, Italian, and Dutch texts from
+`tiny-datagrid/feature-i18n` when no translator is given.
 
 `book.importSheet(sheet)` replaces only the active sheet and participates in its
 undo history. The demo uses it for example content; opening a workbook replaces

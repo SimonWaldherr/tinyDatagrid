@@ -47,16 +47,43 @@ export function demoWorkbook(key,language){
     project:[pick('Projektplan','Project plan'),[[pick('Aufgabe','Task'),pick('Start','Start'),pick('Tage','Days'),pick('Status','Status')],[pick('Planung','Planning'),'2026-10-01',3,pick('Erledigt','Done')],[pick('Umsetzung','Implementation'),'2026-10-05',10,pick('In Arbeit','In progress')],[pick('Abnahme','Review'),'2026-10-19',2,pick('Offen','Open')]]],
     inventory:[pick('Inventar','Inventory'),[[pick('Artikel','Item'),pick('Gruppe','Group'),pick('Anzahl','Quantity'),pick('Einzelwert','Unit value'),pick('Gesamt','Total')],[pick('Stift','Pen'),pick('Büro','Office'),20,1.5,'=C2*D2'],[pick('Heft','Notebook'),pick('Büro','Office'),12,3.2,'=C3*D3'],[pick('Kabel','Cable'),pick('Technik','Equipment'),5,8.9,'=C4*D4'],[pick('Adapter','Adapter'),pick('Technik','Equipment'),3,19,'=C5*D5']]],
     text:[pick('Textfunktionen','Text functions'),[[pick('Eingabe','Input'),'TRIM','UPPER','SUBSTR'],['  Hello world  ','=TRIM(A2)','=UPPER(B2)','=SUBSTR(B2;1;5)'],['  tinyDatagrid  ','=TRIM(A3)','=UPPER(B3)','=SUBSTR(B3;1;4)'],['SEPT1','=TRIM(A4)','=UPPER(B4)','=SUBSTR(B4;1;4)']]],
+    json:[pick('JSON-Daten','JSON data'),[
+      [pick('Bestellung','Order'),pick('JSON (eine Bestellung pro Zelle)','JSON (one order per cell)'),pick('Kunde','Customer'),pick('Stadt','City'),pick('Positionen','Items'),pick('Summe','Total')],
+      [1001,'{"customer":"Ann","city":"Bonn","items":[{"sku":"A-1","qty":2,"price":9.9},{"sku":"B-2","qty":1,"price":24.5}]}','=JSON.GET(B2:B4;"customer")','=JSON.GET(B2:B4;"city")','=JSON.LENGTH(B2:B4;"items")','=MAP(B2:B4;LAMBDA(order;SUMPRODUCT(JSON.GET(order;"items[*].qty");JSON.GET(order;"items[*].price"))))'],
+      [1002,'{"customer":"Ben","city":"Köln","items":[{"sku":"C-3","qty":10,"price":3.2}]}'],
+      [1003,'{"customer":"Cy","city":"Essen","items":[{"sku":"A-1","qty":1,"price":9.9},{"sku":"C-3","qty":4,"price":3.2},{"sku":"B-2","qty":2,"price":24.5}]}'],
+      [],
+      [pick('Produkte (JSON-Array)','Products (JSON array)'),'[{"sku":"A-1","name":"Schraube","price":9.9,"stock":120},{"sku":"B-2","name":"Mutter","price":24.5,"stock":40},{"sku":"C-3","name":"Bolzen","price":3.2,"stock":0}]'],
+      [pick('Als Tabelle (füllt Zellen automatisch):','As a table (fills cells automatically):')],
+      ['=JSON.TABLE(B6)'],
+      [],[],[],
+      [pick('Preis von B-2','Price of B-2'),'=JSON.LOOKUP("B-2";B6;"sku";"price")'],
+      [pick('Lagerbestand gesamt','Total stock'),'=SUM(JSON.GET(B6;"[*].stock"))'],
+      [pick('Ausverkauft','Sold out'),'=JSON.STRINGIFY(JSON.GET(B6;"[?(@.stock==0)].name"))'],
+      [pick('Objekt aus Zellen bauen','Build an object from cells'),'=JSON.OBJECT("sku";A9;"price";C9)']
+    ]],
+    arrays:[pick('Dynamische Arrays','Dynamic arrays'),[
+      [pick('Name','Name'),pick('Punkte','Points'),'',pick('Sortiert (SORT)','Sorted (SORT)'),'','',pick('Eindeutig (UNIQUE)','Unique (UNIQUE)'),'',pick('Bonus ×1,1','Bonus ×1.1')],
+      ['Ann',82,'','=SORT(A2:B7;2;-1)','','','=UNIQUE(B2:B7)','','=ROUND(B2:B7*1.1;1)'],
+      ['Ben',91],['Cy',75],['Dana',91],['Eli',68],['Fay',88],
+      [],
+      [pick('Gefiltert (FILTER ≥ 85)','Filtered (FILTER ≥ 85)'),'','',pick('Folge (SEQUENCE)','Sequence (SEQUENCE)'),'','','','',pick('Großbuchstaben','Upper case')],
+      ['=FILTER(A2:B7;B2:B7>=85;"–")','','','=SEQUENCE(3;4)','','','','','=UPPER(A2:A7)'],
+      [],[],[],[],
+      [pick('Summe der Bonuspunkte','Sum of bonus points'),'=SUM(I2#)'],
+      [pick('Zeilen der Sortierung','Rows of the sorted list'),'=ROWS(D2#)'],
+      [pick('Alle Namen','All names'),'=TEXTJOIN(", ";TRUE;A2:A7)']
+    ]],
     geometry:[pick('Geometrie','Geometry'),[[pick('Radius','Radius'),pick('Kreisfläche','Circle area'),pick('Umfang','Circumference')],[1,'=GEOM.CIRCLE.AREA(A2)','=GEOM.CIRCLE.CIRCUMFERENCE(A2)'],[5,'=GEOM.CIRCLE.AREA(A3)','=GEOM.CIRCLE.CIRCUMFERENCE(A3)'],[10,'=GEOM.CIRCLE.AREA(A4)','=GEOM.CIRCLE.CIRCUMFERENCE(A4)']]]
   };
   if(!Object.hasOwn(demos,key))throw new Error('Unknown demo');
   const [name,data]=demos[key],cells=[];data.forEach((row,r)=>row.forEach((value,c)=>cells.push({row:r,col:c,...(typeof value==='string'&&value.startsWith('=')?{formula:value}:{value}),...(r===0?{style:{fontWeight:'bold'}}:{})})));
-  const calendar=key==='timetable'||key==='week';
+  const calendar=key==='timetable'||key==='week',plain=calendar||key==='json'||key==='arrays';
   for(const cell of cells){
     if(calendar)cell.valueType='text';
     if(key==='learning'&&cell.row>0&&cell.col===3)cell.numberFormat={type:'percent',maximumFractionDigits:0};
     if(key==='timesheet'&&cell.row>0&&[2,4].includes(cell.col))cell.numberFormat={type:'number',maximumFractionDigits:2};
     if(key==='comparison'&&cell.row>0&&[1,3].includes(cell.col))cell.numberFormat={type:'number',maximumFractionDigits:2};
   }
-  return {format:'tinyDatagrid-workbook',version:2,activeSheetId:'sheet1',sheets:[{id:'sheet1',name,cells,variables:{},table:data.length&&!calendar?{r1:0,c1:0,r2:data.length-1,c2:data[0].length-1,headerRow:0,style:'banded'}:null,dimensions:{rows:60,columns:12,columnWidths:Array.from({length:12},(_,c)=>calendar?(c===0?145:185):key==='comparison'&&c===3?235:175),rowHeights:Array(60).fill(calendar?40:31)},freezePanes:{rows:0,columns:0},conditionalFormats:[],validationRules:[],pivotTables:[],filters:[]}]};
+  return {format:'tinyDatagrid-workbook',version:2,activeSheetId:'sheet1',sheets:[{id:'sheet1',name,cells,variables:{},table:data.length&&!plain?{r1:0,c1:0,r2:data.length-1,c2:data[0].length-1,headerRow:0,style:'banded'}:null,dimensions:{rows:60,columns:12,columnWidths:Array.from({length:12},(_,c)=>calendar?(c===0?145:185):key==='comparison'&&c===3?235:key==='json'?[190,460,130,120,110,120][c]??130:key==='arrays'?[190,90,40,130,90,70,150,40,140][c]??110:175),rowHeights:Array(60).fill(calendar?40:31)},freezePanes:{rows:0,columns:0},conditionalFormats:[],validationRules:[],pivotTables:[],filters:[]}]};
 }

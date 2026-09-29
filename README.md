@@ -31,6 +31,6 @@ The demo's reusable tools are optional package entry points. See the [tool integ
 
 ## Documentation
 
-[Integration guide](docs/guide.md) · [Functions](docs/functions.md) · [Plugins & benchmarks](docs/plugins.md) · [Types](src/tinygrid.d.ts)
+[Integration guide](docs/guide.md) · [Functions](docs/functions.md) · [JSON](docs/json.md) · [Dynamic arrays](docs/arrays.md) · [Plugins & benchmarks](docs/plugins.md) · [Demo tools](docs/demo-features.md) · [Types](src/tinygrid.d.ts)
 
 [MIT License](LICENSE)

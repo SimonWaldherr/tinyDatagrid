@@ -3,7 +3,11 @@ import { TinyDatagrid, FormulaEngine, fromPortableValue } from './tinygrid.js';
 /** Optional worksheet collection. Each sheet has its own data, selection and undo stack. */
 export function worksheets(){return {name:'worksheets',setup(grid){
   const exportOne=grid.exportWorkbook,importOne=grid.importWorkbook;
-  const sheets=new Map(),models=new Map();let active='sheet1',sequence=1,switching=false;
+  const sheets=new Map(),models=new Map(),meta=new Map();let active='sheet1',sequence=1,switching=false;
+  const tabColor=value=>typeof value==='string'&&/^#[0-9a-f]{6}$/i.test(value)?value.toLowerCase():null;
+  const isHidden=id=>Boolean(meta.get(id)?.hidden);
+  const visibleIds=()=>[...sheets.keys()].filter(id=>!isHidden(id));
+  const withMeta=(id,sheet)=>{const item=meta.get(id);if(item?.color)sheet.tabColor=item.color;if(item?.hidden)sheet.hidden=true;return sheet};
   function saveActive(){
     if(switching)return;
     const workbook=exportOne.call(grid,{computedValues:false}),sheet=workbook.sheets[0];sheet.id=active;
@@ -14,6 +18,7 @@ export function worksheets(){return {name:'worksheets',setup(grid){
     if(grid.sqlBinding)throw new Error('Detach the SQL result before switching worksheets');
     if(grid._editing&&grid.commitEdit()===false)return false;
     if(id===active)return true;if(!sheets.has(id))throw new Error('Unknown worksheet');
+    if(isHidden(id))meta.set(id,{...meta.get(id),hidden:false});
     saveActive();const previous=active,next=sheets.get(id);switching=true;active=id;
     try{
       if(next.state){grid.anchor={...next.anchor};grid.selection={...next.selection};grid._restore(next.state)}
@@ -70,7 +75,7 @@ export function worksheets(){return {name:'worksheets',setup(grid){
       const id=resolve(name);grid.engine.dependencies.read('worksheets:names');
       if(!id)return '#REF!';return model(id).getComputedValue(cell.row,cell.col,visiting);
     },
-    list(){return [...sheets].map(([id,{sheet}])=>({id,name:id===active?grid.sheetName:sheet.name}))},
+    list(){return [...sheets].map(([id,{sheet}])=>({id,name:id===active?grid.sheetName:sheet.name,color:meta.get(id)?.color??null,hidden:isHidden(id)}))},
     add(name){
       if(grid.readOnly)throw new Error('Workbook is read-only');
       if(name==null){let i=1;while(resolve(`Sheet ${i}`))i++;name=`Sheet ${i}`}name=validateName(name);
@@ -82,13 +87,55 @@ export function worksheets(){return {name:'worksheets',setup(grid){
     select:switchTo,
     importSheet(sheet){if(grid.readOnly)throw new Error('Workbook is read-only');if(!sheet||!Array.isArray(sheet.cells))throw new TypeError('Invalid worksheet');const name=validateName(sheet.name||grid.sheetName,active);const result=importOne.call(grid,{format:'tinyDatagrid-workbook',version:2,activeSheetId:active,sheets:[{...sheet,id:active,name}]},{replace:true});if(result!==false){saveActive();grid.emit('worksheet',{type:'importSheet',id:active})}return result;},
     rename(id,name){if(grid.readOnly)throw new Error('Workbook is read-only');name=validateName(name,id);if(!sheets.has(id)&&id!==active)throw new Error('Unknown worksheet');if(id===active)grid.setSheetName(name);else{const item=sheets.get(id);item.sheet.name=String(name);if(item.state)item.state.sheetName=String(name)}grid.engine.clearCache();grid.render();grid.emit('worksheet',{type:'rename',id})},
-    remove(id){if(grid.readOnly)throw new Error('Workbook is read-only');if(grid._editing&&grid.commitEdit()===false)return false;saveActive();if(sheets.size===1)throw new Error('At least one worksheet is required');if(!sheets.has(id))return false;if(id===active&&!switchTo([...sheets.keys()].find(key=>key!==id)))return false;sheets.delete(id);models.delete(id);grid.engine.clearCache();grid.render();grid.emit('worksheet',{type:'remove',id});return true},
-    destroy(){grid.exportWorkbook=exportOne;grid.importWorkbook=importOne;sheets.clear();models.clear();grid.engine.clearCache()}
+    remove(id){if(grid.readOnly)throw new Error('Workbook is read-only');if(grid._editing&&grid.commitEdit()===false)return false;saveActive();if(sheets.size===1)throw new Error('At least one worksheet is required');if(!sheets.has(id))return false;if(id===active&&!switchTo([...sheets.keys()].find(key=>key!==id&&!isHidden(key))??[...sheets.keys()].find(key=>key!==id)))return false;sheets.delete(id);models.delete(id);meta.delete(id);if(!visibleIds().length)meta.set(active,{...meta.get(active),hidden:false});grid.engine.clearCache();grid.render();grid.emit('worksheet',{type:'remove',id});return true},
+    /** Copy a sheet next to its source. History starts empty; formulas keep pointing at the same sheets by name. */
+    duplicate(id,name){
+      if(grid.readOnly)throw new Error('Workbook is read-only');
+      if(grid._historyDepth||grid.sqlBinding)throw new Error('Cannot duplicate a worksheet during a transaction or SQL session');
+      if(grid._editing&&grid.commitEdit()===false)return null;
+      if(!sheets.has(id))throw new Error('Unknown worksheet');
+      saveActive();
+      const source=sheets.get(id).sheet,copy=structuredClone(source);
+      if(name==null){let n=2;while(resolve(`${source.name} (${n})`))n++;name=`${source.name} (${n})`}
+      copy.name=validateName(name);let newId;do{newId=`sheet${++sequence}`}while(sheets.has(newId));copy.id=newId;
+      const entries=[...sheets],at=entries.findIndex(([key])=>key===id);entries.splice(at+1,0,[newId,{sheet:copy}]);sheets.clear();for(const [key,item] of entries)sheets.set(key,item);
+      if(meta.get(id)?.color)meta.set(newId,{color:meta.get(id).color});
+      grid.engine.dependencies.invalidate('worksheets:names');grid.emit('worksheet',{type:'duplicate',id:newId,source:id});return newId;
+    },
+    /** Reorder tabs. The index is the zero-based position among all sheets, hidden ones included. */
+    move(id,index){
+      if(grid.readOnly)throw new Error('Workbook is read-only');
+      if(!sheets.has(id))throw new Error('Unknown worksheet');
+      const entries=[...sheets],from=entries.findIndex(([key])=>key===id),to=Math.max(0,Math.min(entries.length-1,Math.trunc(Number(index))));
+      if(!Number.isFinite(to)||from===to)return false;
+      const [item]=entries.splice(from,1);entries.splice(to,0,item);sheets.clear();for(const [key,value] of entries)sheets.set(key,value);
+      grid.emit('worksheet',{type:'move',id,index:to});return true;
+    },
+    /** Tab color as #rrggbb, or null to clear it. */
+    setColor(id,color){
+      if(grid.readOnly)throw new Error('Workbook is read-only');
+      if(!sheets.has(id))throw new Error('Unknown worksheet');
+      const value=color==null||color===''?null:tabColor(color);
+      if(color!=null&&color!==''&&!value)throw new TypeError('Tab color must be #rrggbb');
+      meta.set(id,{...meta.get(id),color:value});grid.emit('worksheet',{type:'color',id});return true;
+    },
+    /** Hide or show a tab. At least one sheet stays visible; hiding the active sheet selects a neighbour. */
+    setHidden(id,hidden=true){
+      if(grid.readOnly)throw new Error('Workbook is read-only');
+      if(!sheets.has(id))throw new Error('Unknown worksheet');
+      hidden=Boolean(hidden);if(hidden===isHidden(id))return true;
+      if(hidden){
+        const visible=visibleIds();if(visible.length<2)throw new Error('At least one visible worksheet is required');
+        if(id===active){const at=visible.indexOf(id),target=visible[at+1]??visible[at-1];if(!switchTo(target))return false}
+      }
+      meta.set(id,{...meta.get(id),hidden});grid.emit('worksheet',{type:hidden?'hide':'show',id});return true;
+    },
+    destroy(){grid.exportWorkbook=exportOne;grid.importWorkbook=importOne;sheets.clear();models.clear();meta.clear();grid.engine.clearCache()}
   };
   saveActive();
   grid.exportWorkbook=function(options){
     if(switching)return exportOne.call(grid,options);
-    saveActive();const current=exportOne.call(grid,options);current.sheets=[...sheets.values()].map(item=>structuredClone(item.sheet));current.activeSheetId=active;
+    saveActive();const current=exportOne.call(grid,options);current.sheets=[...sheets].map(([id,item])=>withMeta(id,structuredClone(item.sheet)));current.activeSheetId=active;
     // Collection export always preserves every sheet in full.
     delete current.cells;delete current.variables;delete current.dimensions;return current;
   };
@@ -99,11 +146,12 @@ export function worksheets(){return {name:'worksheets',setup(grid){
     if(!Array.isArray(workbook?.sheets)||!workbook.sheets.length)return importOne.call(grid,input,options);
     const ids=new Set();for(const sheet of workbook.sheets){if(typeof sheet.id!=='string'||ids.has(sheet.id)||!Array.isArray(sheet.cells))throw new TypeError('Invalid worksheet collection');ids.add(sheet.id)}
     const selected=ids.has(workbook.activeSheetId)?workbook.activeSheetId:workbook.sheets[0].id;
-    const previous=new Map(sheets),previousId=active,previousState=grid._snapshot(),previousHistory=[...grid._history],previousFuture=[...grid._future];
-    sheets.clear();models.clear();for(const sheet of workbook.sheets)sheets.set(sheet.id,{sheet:structuredClone(sheet)});active=selected;
+    const previous=new Map(sheets),previousMeta=new Map([...meta].map(([key,value])=>[key,{...value}])),previousId=active,previousState=grid._snapshot(),previousHistory=[...grid._history],previousFuture=[...grid._future];
+    sheets.clear();models.clear();meta.clear();for(const sheet of workbook.sheets){sheets.set(sheet.id,{sheet:structuredClone(sheet)});const color=tabColor(sheet.tabColor);if(color||sheet.hidden===true)meta.set(sheet.id,{color,hidden:sheet.hidden===true&&sheet.id!==selected})}active=selected;
+    if(!visibleIds().length)meta.set(selected,{...meta.get(selected),hidden:false});
     try{const result=importOne.call(grid,{...workbook,activeSheetId:selected},options);if(result===false)throw new Error('Worksheet import rejected');
       grid.clearHistory();saveActive();grid.emit('worksheet',{type:'import',id:active});return result;
-    }catch(error){sheets.clear();for(const [id,item] of previous)sheets.set(id,item);active=previousId;models.clear();grid._historyBefore=null;grid._history=previousHistory;grid._future=previousFuture;grid._restore(previousState);throw error}
+    }catch(error){sheets.clear();for(const [id,item] of previous)sheets.set(id,item);meta.clear();for(const [id,value] of previousMeta)meta.set(id,value);active=previousId;models.clear();grid._historyBefore=null;grid._history=previousHistory;grid._future=previousFuture;grid._restore(previousState);throw error}
 
   };
   return api;

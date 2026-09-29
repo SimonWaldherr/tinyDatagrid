@@ -13,7 +13,7 @@ Formulas support arithmetic, comparisons, text concatenation, A1 references and 
 =SUM(MAP(D2:D10; LAMBDA(anzahl; anzahl*2)))
 ```
 
-Supported functions cover math and statistics, logic, criteria-based aggregation, lookup, arrays, text, dates, and JSON. German aliases include `SVERWEIS`, `WVERWEIS`, and `XVERWEIS`. Dynamic array results such as `=SEQUENCE(5)` or `=FILTER(A2:B20;B2:B20>0)` fill adjacent cells. A blocked result displays `#SPILL!`; use `A1#` to reference the full result.
+Supported functions cover math and statistics, logic, criteria-based aggregation, lookup, arrays, text, dates, and JSON. German aliases include `SVERWEIS`, `WVERWEIS`, and `XVERWEIS`. Dynamic array results such as `=SEQUENCE(5)` or `=FILTER(A2:B20;B2:B20>0)` fill adjacent cells. A blocked result displays `#SPILL!`; use `A1#` to reference the full result. See [Dynamic arrays](arrays.md) for spill rules and element-wise calculations, and [JSON values and formulas](json.md) for the `JSON.*` functions and paths.
 
 See the [function reference](functions.md) for geo, geometry, hashing, random generation, text, and regular expressions.
 
@@ -156,7 +156,7 @@ The browser module, CSS, type declarations, and SQL adapter are exposed through 
 
 ## Spreadsheet demo
 
-Serve the repository over HTTP and open `demo/` (for example, `python3 -m http.server 8000`, then `http://localhost:8000/demo/`). The demo has Start/Home, Data, File, and View tabs, an editable sheet name, a formula bar with range navigation and formula assistance, text and number formatting, AutoSum, find/replace, charts, JSON editing and expansion tools, selection statistics, and a collapsible pivot inspector. AutoSum writes below a selected single-column range only when the destination is empty. Workbook export and share links preserve formatting and formulas; these actions are explicit snapshots, not automatic saves.
+Serve the repository over HTTP and open `demo/` (for example, `python3 -m http.server 8000`, then `http://localhost:8000/demo/`). The demo has General, Data, File, and View tabs, an editable sheet name, a formula bar with range navigation and formula assistance, text and number formatting, AutoSum, find/replace, charts, JSON editing and expansion tools, selection statistics, and a collapsible pivot inspector. AutoSum writes below a selected single-column range only when the destination is empty. Workbook export and share links preserve formatting and formulas; these actions are explicit snapshots, not automatic saves.
 
 The View tab switches between German and English and between system, light, dark, and additional theme presets. Only these preferences are stored locally. Sheet contents and formula syntax are not translated. The sample inventory keeps its German data labels.
 

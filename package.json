@@ -52,6 +52,10 @@
       "types": "./src/search-tools.d.ts",
       "import": "./src/search-tools.js"
     },
+    "./data-tools": {
+      "types": "./src/data-tools.d.ts",
+      "import": "./src/data-tools.js"
+    },
     "./formula-assist": {
       "types": "./src/formula-assist.d.ts",
       "import": "./src/formula-assist.js"
@@ -107,7 +111,7 @@
     "**/*.css"
   ],
   "scripts": {
-    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs && node test-editor-layout.mjs",
+    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs && node test-editor-layout.mjs && node test-worksheets.mjs && node test-data-tools.mjs",
     "benchmark": "node benchmarks/recalculation.mjs",
     "benchmark:large": "node --max-old-space-size=2048 benchmarks/large-grid.mjs"
   }

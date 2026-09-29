@@ -1434,6 +1434,7 @@ export class TinyDatagrid {
   }
   goTo(row,col){const grew=this.ensureSize(row+1,col+1);if(grew)this.render();this.select(row,col);this.scrollToCell(row,col);return this}
   scrollToCell(row,col){
+    if(!this.scroll.clientHeight||!this.scroll.clientWidth)return; // not laid out yet (hidden or zero-sized): scrolling would be meaningless
     const top=this.rowOffsets[row]||0,bottom=this.rowOffsets[row+1]??top,left=this.colOffsets[col]||0,right=this.colOffsets[col+1]??left;
     const frozen=this._frozenCounts();if(row>=frozen.rows){if(top<this._scrollY()+this.rowOffsets[frozen.rows])this._setScrollY(top-this.rowOffsets[frozen.rows]);else if(bottom>this._scrollY()+this.scroll.clientHeight)this._setScrollY(bottom-this.scroll.clientHeight);}
     if(col>=frozen.columns){if(left<this.scroll.scrollLeft+this.colOffsets[frozen.columns])this.scroll.scrollLeft=left-this.colOffsets[frozen.columns];else if(right>this.scroll.scrollLeft+this.scroll.clientWidth)this.scroll.scrollLeft=right-this.scroll.clientWidth;}
