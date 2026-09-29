@@ -73,6 +73,8 @@ export class TinyDatagrid {
   getOriginalValue(row: number, col: number): unknown;
   getPrecedents(row?: number, col?: number): Array<{text: string; sheet?: string; sheetId: string|null; a: {row:number;col:number;ac:string;ar:string}; b: {row:number;col:number;ac:string;ar:string}; range: boolean}>;
   getDependents(row?: number, col?: number): Array<{sheetId:string|null;sheet:string;row:number;col:number;address:string;formula:string}>;
+  /** Move to the next visible cell; false at the sheet boundary. */
+  moveSelection(direction: 'up' | 'down' | 'left' | 'right', extend?: boolean): boolean;
   /** Clear cached results, including random values, and refresh formulas and filters. */
   recalculate(options?: { full?: boolean }): this;
   setExternalVariable(name: string, value: unknown, options?: { recalculate?: boolean }): this;

@@ -1,5 +1,10 @@
 // [de, en, fr, es, it, nl] - labels for optional demo-feature UI.
 const featureText = {
+  column: ['Spalte', 'Column', 'Colonne', 'Columna', 'Colonna', 'Kolom'],
+  failed: ['Aktion fehlgeschlagen', 'Action failed', 'Échec de l’action', 'Error en la acción', 'Azione non riuscita', 'Actie mislukt'],
+  matches: ['Treffer', 'matches', 'résultats', 'resultados', 'risultati', 'treffers'],
+  noMatches: ['Keine Treffer', 'No matches', 'Aucun résultat', 'Sin resultados', 'Nessun risultato', 'Geen treffers'],
+  noReferences: ['Keine direkten Zellbezüge gefunden.', 'No direct cell references found.', 'Aucune référence directe trouvée.', 'No se encontraron referencias directas.', 'Nessun riferimento diretto trovato.', 'Geen directe celverwijzingen gevonden.'],
   // ---- JSON tools
   jsonGroup: ['JSON', 'JSON', 'JSON', 'JSON', 'JSON', 'JSON'],
   jsonEdit: ['JSON bearbeiten', 'Edit JSON', 'Modifier le JSON', 'Editar JSON', 'Modifica JSON', 'JSON bewerken'],

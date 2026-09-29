@@ -87,6 +87,14 @@
     "./function-help": {
       "types": "./src/function-help.d.ts",
       "import": "./src/function-help.js"
+    },
+    "./cell-context-menu": {
+      "types": "./src/cell-context-menu.d.ts",
+      "import": "./src/cell-context-menu.js"
+    },
+    "./worksheet-tabs": {
+      "types": "./src/worksheet-tabs.d.ts",
+      "import": "./src/worksheet-tabs.js"
     }
   },
   "files": [
@@ -99,7 +107,8 @@
     "**/*.css"
   ],
   "scripts": {
-    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs",
-    "benchmark": "node benchmarks/recalculation.mjs"
+    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs && node test-editor-layout.mjs",
+    "benchmark": "node benchmarks/recalculation.mjs",
+    "benchmark:large": "node --max-old-space-size=2048 benchmarks/large-grid.mjs"
   }
 }

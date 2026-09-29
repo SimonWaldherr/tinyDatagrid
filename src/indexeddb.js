@@ -11,7 +11,7 @@ export function indexedDBStorage({key,database='tinyDatagrid',autoSave=false,del
         const request=globalThis.indexedDB.open(database,1);
         request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('documents'))request.result.createObjectStore('documents')};
         request.onerror=()=>reject(request.error);
-        request.onblocked=()=>grid.emit('storageblocked',{database});
+        request.onblocked=()=>{grid.emit('storageblocked',{database});reject(new Error('IndexedDB is blocked by another tab'))};
         request.onsuccess=()=>{if(disposed){request.result.close();reject(new Error('Storage plugin disposed'));return}connection=request.result;connection.onversionchange=()=>{connection?.close();connection=null};resolve(connection)};
       }).finally(()=>{opening=null});return opening;
     }
@@ -23,7 +23,7 @@ export function indexedDBStorage({key,database='tinyDatagrid',autoSave=false,del
     }
     function serialize(operation){const next=queue.then(operation);queue=next.catch(()=>{});return next}
     const api={
-      save(){const workbook=grid.exportWorkbook();return serialize(async()=>{await run('readwrite',store=>store.put({workbook,savedAt:new Date().toISOString()},key));grid.emit('storage',{type:'saved',key});return true})},
+      save(){const workbook=grid.exportWorkbook({computedValues:false});return serialize(async()=>{await run('readwrite',store=>store.put({workbook,savedAt:new Date().toISOString()},key));grid.emit('storage',{type:'saved',key});return true})},
       restore(){clearTimeout(timer);return serialize(async()=>{const item=await run('readonly',store=>store.get(key));if(!item)return false;loading=true;try{const result=grid.importWorkbook(item.workbook);if(result===false)return false;grid.clearHistory();grid.emit('storage',{type:'restored',key});return true}finally{loading=false}})},
       clear(){clearTimeout(timer);return serialize(async()=>{await run('readwrite',store=>store.delete(key));grid.emit('storage',{type:'cleared',key});return true})},
       destroy(){disposed=true;clearTimeout(timer);for(const off of unsubscribe)off();connection?.close();connection=null}

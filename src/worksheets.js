@@ -1,3 +1,4 @@
+import { parseDataJSON } from './numeric-values.js';
 import { TinyDatagrid, FormulaEngine, fromPortableValue } from './tinygrid.js';
 /** Optional worksheet collection. Each sheet has its own data, selection and undo stack. */
 export function worksheets(){return {name:'worksheets',setup(grid){
@@ -47,6 +48,11 @@ export function worksheets(){return {name:'worksheets',setup(grid){
     view.engine.functions=grid.engine.functions;view.engine._customFunctions=grid.engine._customFunctions;
     models.set(id,view);return view;
   }
+  function validateName(name,id){
+    name=String(name).trim();if(!name||name.length>80)throw new TypeError('Sheet name must contain 1–80 characters');
+    if([...sheets].some(([key,item])=>key!==id&&(String(key===active?grid.sheetName:item.sheet.name).toLowerCase()===name.toLowerCase()||key.toLowerCase()===name.toLowerCase())))throw new TypeError('Sheet name already exists');
+    return name;
+  }
   const api={
     referenceDocuments(){return [...sheets].map(([id,item])=>({id,name:id===active?grid.sheetName:item.sheet.name,cells:model(id).cells,variables:model(id).variables}))},
     applyReferenceChanges(changes,forward){
@@ -64,16 +70,19 @@ export function worksheets(){return {name:'worksheets',setup(grid){
       const id=resolve(name);grid.engine.dependencies.read('worksheets:names');
       if(!id)return '#REF!';return model(id).getComputedValue(cell.row,cell.col,visiting);
     },
-    list(){saveActive();return [...sheets].map(([id,{sheet}])=>({id,name:sheet.name}))},
-    add(name='Sheet'){
+    list(){return [...sheets].map(([id,{sheet}])=>({id,name:id===active?grid.sheetName:sheet.name}))},
+    add(name){
+      if(grid.readOnly)throw new Error('Workbook is read-only');
+      if(name==null){let i=1;while(resolve(`Sheet ${i}`))i++;name=`Sheet ${i}`}name=validateName(name);
       if(grid._historyDepth||grid.sqlBinding)throw new Error('Cannot add worksheet during a transaction or SQL session');
       saveActive();let id;do{id=`sheet${++sequence}`}while(sheets.has(id));
       sheets.set(id,{sheet:{id,name:String(name),cells:[],variables:{},dimensions:{rows:grid.options.rows,columns:grid.options.columns}}});
       grid.engine.dependencies.invalidate('worksheets:names');grid.render();grid.emit('worksheet',{type:'add',id});return id;
     },
     select:switchTo,
-    rename(id,name){if(!sheets.has(id)&&id!==active)throw new Error('Unknown worksheet');if(id===active)grid.setSheetName(name);else{const item=sheets.get(id);item.sheet.name=String(name);if(item.state)item.state.sheetName=String(name)}grid.engine.clearCache();grid.render();grid.emit('worksheet',{type:'rename',id})},
-    remove(id){saveActive();if(sheets.size===1)throw new Error('At least one worksheet is required');if(!sheets.has(id))return false;if(id===active&&!switchTo([...sheets.keys()].find(key=>key!==id)))return false;sheets.delete(id);models.delete(id);grid.engine.clearCache();grid.render();grid.emit('worksheet',{type:'remove',id});return true},
+    importSheet(sheet){if(grid.readOnly)throw new Error('Workbook is read-only');if(!sheet||!Array.isArray(sheet.cells))throw new TypeError('Invalid worksheet');const name=validateName(sheet.name||grid.sheetName,active);const result=importOne.call(grid,{format:'tinyDatagrid-workbook',version:2,activeSheetId:active,sheets:[{...sheet,id:active,name}]},{replace:true});if(result!==false){saveActive();grid.emit('worksheet',{type:'importSheet',id:active})}return result;},
+    rename(id,name){if(grid.readOnly)throw new Error('Workbook is read-only');name=validateName(name,id);if(!sheets.has(id)&&id!==active)throw new Error('Unknown worksheet');if(id===active)grid.setSheetName(name);else{const item=sheets.get(id);item.sheet.name=String(name);if(item.state)item.state.sheetName=String(name)}grid.engine.clearCache();grid.render();grid.emit('worksheet',{type:'rename',id})},
+    remove(id){if(grid.readOnly)throw new Error('Workbook is read-only');if(grid._editing&&grid.commitEdit()===false)return false;saveActive();if(sheets.size===1)throw new Error('At least one worksheet is required');if(!sheets.has(id))return false;if(id===active&&!switchTo([...sheets.keys()].find(key=>key!==id)))return false;sheets.delete(id);models.delete(id);grid.engine.clearCache();grid.render();grid.emit('worksheet',{type:'remove',id});return true},
     destroy(){grid.exportWorkbook=exportOne;grid.importWorkbook=importOne;sheets.clear();models.clear();grid.engine.clearCache()}
   };
   saveActive();
@@ -86,7 +95,7 @@ export function worksheets(){return {name:'worksheets',setup(grid){
   grid.importWorkbook=function(input,options={}){
     if(switching||options.replace===false)return importOne.call(grid,input,options);
     if(grid._historyDepth)throw new Error('Import a worksheet collection outside a transaction');
-    const workbook=typeof input==='string'?JSON.parse(input):input;
+    const workbook=typeof input==='string'?parseDataJSON(input):input;
     if(!Array.isArray(workbook?.sheets)||!workbook.sheets.length)return importOne.call(grid,input,options);
     const ids=new Set();for(const sheet of workbook.sheets){if(typeof sheet.id!=='string'||ids.has(sheet.id)||!Array.isArray(sheet.cells))throw new TypeError('Invalid worksheet collection');ids.add(sheet.id)}
     const selected=ids.has(workbook.activeSheetId)?workbook.activeSheetId:workbook.sheets[0].id;

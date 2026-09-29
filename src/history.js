@@ -16,6 +16,16 @@ export function difference(before, after) {
     const added = [...after].filter(value => !before.has(value));
     return removed.length || added.length ? { type, removed, added } : null;
   }
+  if (type === 'array') {
+    const changes=[];
+    for(let index=0;index<Math.max(before.length,after.length);index++){
+      const was=index in before,now=index in after;
+      if(was===now&&Object.is(before[index],after[index]))continue;
+      const patch=was&&now?difference(before[index],after[index]):{type:'value',before:before[index],after:after[index]};
+      if(patch)changes.push({key:index,was,now,patch});
+    }
+    return changes.length||before.length!==after.length?{type,changes,...(before.length!==after.length?{lengths:[before.length,after.length]}:{})}:null;
+  }
   const changes = [];
   for (const key of new Set([...entries(before), ...entries(after)].map(([key]) => key))) {
     const was = has(before, key), now = has(after, key);

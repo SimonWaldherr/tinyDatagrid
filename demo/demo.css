@@ -142,3 +142,14 @@ body{-webkit-tap-highlight-color:transparent;touch-action:manipulation;overscrol
 :root{--danger:#b42318;--danger-bg:#fff1f0}
 :root[data-theme="dark"],:root[data-theme="midnight"],:root[data-theme="graphite"]{--danger:#ffb4a8;--danger-bg:#4b2424}
 @media(prefers-color-scheme:dark){:root[data-theme="system"]{--danger:#ffb4a8;--danger-bg:#4b2424}}
+
+.inspector{width:340px;padding:0 16px 18px;overscroll-behavior:contain}.inspector-heading{position:sticky;top:0;z-index:2;background:var(--panel);padding:16px 0 12px;margin-bottom:12px;border-bottom:1px solid var(--line)}.inspector-selection{padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-bottom:14px}.inspector-selection output{display:block;margin-top:8px;font-family:monospace;color:var(--accent)}.inspector-selection p{margin:6px 0 0;max-height:100px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.inspector-section{border-bottom:1px solid var(--line);padding:12px 0}.inspector-section>summary{cursor:pointer;font-weight:650;min-height:32px}.inspector-section .eyebrow,.inspector-section .section-heading{display:none}.inspector .metrics{margin:8px 0}.inspector .tool-row{flex-wrap:wrap}.inspector .pivot{max-height:340px}.inspector .pivot thead{position:sticky;top:0}.inspector .pivot-controls{grid-template-columns:1fr;gap:12px;margin:14px 0}.inspector .pivot-controls label{font-size:12px}.inspector .pivot-controls select{min-height:36px}.inspector .metrics strong{font-size:21px}
+
+#sheetTabs{min-width:0;flex:1}.sheet-strip{gap:8px}.tg-worksheet-tab{max-width:200px;overflow:hidden;text-overflow:ellipsis}
+
+/* Compact, labelled spreadsheet tools; retain the ribbon's horizontal scrolling. */
+.tools-grid{display:grid;grid-template-columns:repeat(4,max-content);gap:2px 6px}
+.tools-grid button{justify-content:flex-start;min-height:34px;padding:5px 9px;font-size:12px}
+.tools-grid button svg{width:18px;height:18px;color:var(--accent)}
+.tools-group{gap:3px}
+@media(max-width:700px){.tools-grid{grid-template-columns:repeat(2,max-content)}}

@@ -124,7 +124,7 @@ export function attachFormulaAssist(input, grid, options = {}) {
     list.children[active]?.scrollIntoView({ block: 'nearest' });
   }
   function keydown(event) {
-    if (popup.hidden || !items.length || event.isComposing) return;
+    if (popup.hidden || !items.length || event.isComposing || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); event.stopImmediatePropagation(); move(event.key === 'ArrowDown' ? 1 : -1); }
     else if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); event.stopImmediatePropagation(); accept(); }
     else if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(); }

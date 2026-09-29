@@ -160,7 +160,7 @@ Serve the repository over HTTP and open `demo/` (for example, `python3 -m http.s
 
 The View tab switches between German and English and between system, light, dark, and additional theme presets. Only these preferences are stored locally. Sheet contents and formula syntax are not translated. The sample inventory keeps its German data labels.
 
-The grid exposes row/cell semantics, selection, active-cell focus, and read-only state to assistive technology. Arrow keys navigate visible cells; Shift + arrows extends a selection; Enter/F2 edits; Alt + Down opens a column filter. Shift + Space selects a row, Ctrl/Cmd + Space selects a column, and Shift + F10 opens its context menu. Menus support Escape and dialogs restore focus. Tab moves to the next control. The demo supports Ctrl/Cmd + F to search values and formulas in visible cells. Screen-reader behavior can vary by browser and assistive technology.
+The grid exposes row/cell semantics, selection, active-cell focus, and read-only state to assistive technology. Arrow keys navigate visible cells; Shift + arrows extends a selection; Enter/F2 edits; Alt + Down opens a column filter. Shift + Space selects a row, Ctrl/Cmd + Space selects a column, and Shift + F10 opens its context menu. Menus support Escape and dialogs restore focus. Outside editing, Tab moves to the next control. While editing, arrows move the text cursor; Enter applies and moves down, Ctrl/Cmd + Enter applies and moves up, Tab / Shift + Tab applies and moves right / left. Shift + Enter inserts a newline; Escape discards the edit. An open formula suggestion list uses Up/Down and Enter/Tab until dismissed with Escape. Cell navigation skips hidden/filtered rows and hidden columns and stops at sheet boundaries. Library integrations can call `grid.moveSelection("up" | "down" | "left" | "right", extend = false)` (returns false at a boundary). The demo supports Ctrl/Cmd + F to search values and formulas in visible cells. Screen-reader behavior can vary by browser and assistive technology.
 
 For embedded grids, pass `{ locale: 'de' }` or call `grid.setLocale('en')`. Grid menus are translated into German, English, French, Spanish, Italian and Dutch (region suffixes such as `fr-CA` are accepted); other locales fall back to English. The demo adds the same languages in `demo/locales/*.js`; missing keys fall back to English. `grid.styleSelection({ fontWeight: 'bold', textAlign: 'right' })` applies undoable CSS formatting to the current selection. Import `tiny-datagrid/themes.css` to enable the optional `data-theme` presets: `light`, `dark`, `ocean`, `paper`, `midnight`, `graphite`, and `contrast` (high contrast). Set `data-theme` on the document root or grid. Without a value, or with `system`, the grid follows the system color scheme. Colors are exposed as `--tg-*` CSS variables, so custom themes only need to define those variables under `[data-theme="mytheme"] .tg-root`. Set `--tg-font` to change the grid typeface.
 
@@ -248,3 +248,13 @@ browser print dialog with landscape pages and repeating table headers; use
 ## Touch devices
 
 On touch screens a tap selects a cell, a double tap edits it, and dragging scrolls. Press and hold a cell for about half a second, then drag to select a range. Press and hold a row or column header to open its menu, because iOS does not send `contextmenu` events. Hit areas for resize handles, the fill handle and filter buttons grow automatically on coarse pointers, and inputs use 16 px text so iOS Safari does not zoom in on focus. The demo also respects safe areas and follows the on-screen keyboard through `visualViewport`.
+
+### Automatic local saving
+
+The demo restores its last workbook on reload using IndexedDB, with a temporary
+localStorage recovery copy for pending writes. Cell-editor and formula-bar drafts
+are saved separately while typing. The document header reports saving failures.
+Shared URLs have a separate local save slot, so reloading a shared sheet retains
+local edits without replacing the ordinary local worksheet. This is browser/origin
+storage, not cloud sync: clearing site data removes it. Export remains the durable
+backup option; private mode, quotas or disabled storage can prevent local saves.

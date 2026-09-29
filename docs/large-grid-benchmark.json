@@ -1,0 +1,42 @@
+{
+  "before": {
+    "date": "2026-09-29T13:28:13.845Z",
+    "node": "v26.10.0",
+    "cpu": "Apple M2 Max",
+    "rows": 2000000,
+    "columns": 100,
+    "logicalCells": 200000000,
+    "storedCells": 200001,
+    "scope": "Real model layout/edit with 200,000 stored cells; all 200M dense source values scanned separately, not stored or evaluated as formulas; no DOM.",
+    "initMs": 4.964500000000001,
+    "layoutMs": 38.743292,
+    "repeatLayoutMs": 39.373524999999994,
+    "denseScanMs": 439.74116699999996,
+    "editMs": 5.932708000000048,
+    "historyEditMs": 2152.370625,
+    "checksum": "19999999900000000",
+    "heapMB": 759.1469497680664,
+    "canvasHeight": "56000000px"
+  },
+  "after": {
+    "date": "2026-09-29T13:31:40.139Z",
+    "node": "v26.10.0",
+    "cpu": "Apple M2 Max",
+    "rows": 2000000,
+    "columns": 100,
+    "logicalCells": 200000000,
+    "storedCells": 200001,
+    "scope": "Real model layout/edit with 200,000 stored cells; all 200M dense source values scanned separately, not stored or evaluated as formulas; no DOM.",
+    "initMs": 6.2082499999999925,
+    "layoutMs": 22.034916999999993,
+    "repeatLayoutMs": 18.4956582,
+    "denseScanMs": 419.24929199999997,
+    "editMs": 5.8878330000000005,
+    "historyEditMs": 152.53262500000005,
+    "checksum": "19999999900000000",
+    "heapMB": 201.06784057617188,
+    "rssMB": 403.3329162597656,
+    "arrayBuffersMB": 30.65037441253662,
+    "canvasHeight": "8000000px"
+  }
+}

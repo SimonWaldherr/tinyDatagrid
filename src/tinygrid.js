@@ -647,7 +647,7 @@ export class TinyDatagrid {
     if (!this.el) throw new Error('tinyDatagrid container not found');
     this.options = { rows:100, columns:26, rowHeight:28, columnWidth:110, headerWidth:52, headerHeight:28, ...options };
     const overscan=Math.trunc(Number(this.options.virtualizationOverscan??6));
-    this.virtualization=Boolean(this.options.virtualization);this.virtualizationOverscan=Number.isFinite(overscan)?Math.max(0,overscan):6;this._virtualFrame=null;this._resizeObserver=null;
+    this.virtualization=Boolean(this.options.virtualization)||this.options.rows*this.options.columns>100000;this.virtualizationOverscan=Number.isFinite(overscan)?Math.max(0,overscan):6;this._virtualFrame=null;this._resizeObserver=null;
     this.locale=options.locale||'en';this._gridId=`tinygrid-${++gridSequence}`;
     this.rowCount=this.options.rows; this.colCount=this.options.columns;
     this.rowHeights=Array(this.rowCount).fill(this.options.rowHeight); this.colWidths=Array(this.colCount).fill(this.options.columnWidth);
@@ -702,7 +702,7 @@ export class TinyDatagrid {
   on(type,fn){(this.listeners.get(type)||this.listeners.set(type,new Set()).get(type)).add(fn);return()=>this.listeners.get(type)?.delete(fn)}
   emit(type,detail){if(this._destroyed)return;this.listeners.get(type)?.forEach(fn=>fn(detail));this.el.dispatchEvent(new CustomEvent(`tinygrid:${type}`,{detail}));}
   setReadOnly(readOnly=true){this.readOnly=Boolean(readOnly);this.el.classList.toggle('tg-readonly',this.readOnly);this.el.setAttribute('aria-readonly',String(this.readOnly));this.editor.readOnly=this.readOnly;if(this.readOnly){this._fillState=null;this._closeAutofillMenu(true);if(this._editing)this.commitEdit(true)}if(!this.contextMenu.hidden)this._renderAxisMenu(this._contextMenuAxis,this._contextMenuIndex);this.emit('readonly',{readOnly:this.readOnly});return this}
-  setVirtualization(enabled=true){const value=Boolean(enabled);if(value===this.virtualization)return this;this.virtualization=value;this._syncVirtualizationObserver();this.render();this.emit('virtualization',{enabled:value,overscan:this.virtualizationOverscan});return this}
+  setVirtualization(enabled=true){const value=Boolean(enabled)||this.rowCount*this.colCount>100000;if(value===this.virtualization)return this;this.virtualization=value;this._syncVirtualizationObserver();this.render();this.emit('virtualization',{enabled:value,overscan:this.virtualizationOverscan});return this}
   _syncVirtualizationObserver(){
     if(!this.virtualization||typeof globalThis.ResizeObserver!=='function'){this._resizeObserver?.disconnect();this._resizeObserver=null;return}
     if(!this._resizeObserver)this._resizeObserver=new globalThis.ResizeObserver(()=>this._scheduleVirtualRender());
@@ -1302,13 +1302,18 @@ export class TinyDatagrid {
   }
   _closeFilterMenu(){const focused=this.filterMenu.contains(document.activeElement);this.filterMenu.hidden=true;this.filterMenu.replaceChildren();if(focused)this.el.focus({preventScroll:true})}
   _handleFilterMenuClick(event){const button=event.target.closest('button');if(!button)return;const col=this._filterColumn;if(button.dataset.sort){this._closeFilterMenu();this.sortTable(col,button.dataset.sort)}else if(button.hasAttribute('data-filter-clear')){this.setColumnFilter(col,null);this._closeFilterMenu()}else if(button.hasAttribute('data-filter-apply')){const checked=[...this.filterMenu.querySelectorAll('[data-filter-value]:checked')].map(input=>input.dataset.filterValue);this.setColumnFilter(col,checked.length===this._filterOptions.size?null:checked);this._closeFilterMenu()}}
-  offsets(arr){const out=[0];for(let i=0;i<arr.length;i++)out.push(out[i]+arr[i]);return out}
+  offsets(arr){const out=new Float64Array(arr.length+1);for(let i=0;i<arr.length;i++)out[i+1]=out[i]+arr[i];return out}
   _frozenCounts(){return this.feature('freezePanes')?{rows:clamp(Math.trunc(Number(this.freezePanes.rows))||0,0,this.rowCount-1),columns:clamp(Math.trunc(Number(this.freezePanes.columns))||0,0,this.colCount-1)}:{rows:0,columns:0}}
-  _renderIndices(range,axis){const frozen=this._frozenCounts()[axis];return [...new Set([...Array.from({length:frozen},(_,i)=>i),...Array.from({length:range.end-range.start},(_,i)=>range.start+i)])]}
-  _viewOffset(index,axis){const rows=axis==='rows',frozen=this._frozenCounts()[axis],offsets=rows?this.rowOffsets:this.colOffsets,scroll=rows?this.scroll.scrollTop:this.scroll.scrollLeft;return index<frozen?offsets[index]:offsets[index]-scroll}
+  _renderIndices(range,axis){const rows=axis==='rows',offsets=rows?this.rowOffsets:this.colOffsets,viewport=rows?this.scroll.clientHeight:this.scroll.clientWidth,frozen=Math.min(this._frozenCounts()[axis],upperBound(offsets,viewport||700));return [...new Set([...Array.from({length:frozen},(_,i)=>i),...Array.from({length:range.end-range.start},(_,i)=>range.start+i)])]}
+  _scrollY(){
+    const total=this.rowOffsets?.at(-1)||0,viewport=this.scroll.clientHeight,physical=Math.max(0,(this._canvasHeight??total)-viewport),logical=Math.max(0,total-viewport);
+    return physical?this.scroll.scrollTop*logical/physical:0;
+  }
+  _setScrollY(value){const total=this.rowOffsets?.at(-1)||0,viewport=this.scroll.clientHeight,logical=Math.max(0,total-viewport),physical=Math.max(0,(this._canvasHeight??total)-viewport);this.scroll.scrollTop=logical?clamp(value,0,logical)*physical/logical:0;}
+  _viewOffset(index,axis){const rows=axis==='rows',frozen=this._frozenCounts()[axis],offsets=rows?this.rowOffsets:this.colOffsets,scroll=rows?this._scrollY():this.scroll.scrollLeft;return index<frozen?offsets[index]:offsets[index]-scroll}
   _syncFrozenCells(){
     const frozen=this._frozenCounts();if(!frozen.rows&&!frozen.columns)return;
-    for(const cell of this.canvas.querySelectorAll('.tg-cell')){const r=+cell.dataset.row,c=+cell.dataset.col;cell.classList.toggle('tg-frozen-row-edge',r===frozen.rows-1);cell.classList.toggle('tg-frozen-column-edge',c===frozen.columns-1);if(r<frozen.rows||c<frozen.columns){cell.style.left=(this.colOffsets[c]+(c<frozen.columns?this.scroll.scrollLeft:0))+'px';cell.style.top=(this.rowOffsets[r]+(r<frozen.rows?this.scroll.scrollTop:0))+'px';cell.style.zIndex=r<frozen.rows&&c<frozen.columns?'4':'3'}}
+    for(const cell of this.canvas.querySelectorAll('.tg-cell')){const r=+cell.dataset.row,c=+cell.dataset.col;cell.classList.toggle('tg-frozen-row-edge',r===frozen.rows-1);cell.classList.toggle('tg-frozen-column-edge',c===frozen.columns-1);if(r<frozen.rows||c<frozen.columns){cell.style.left=(this.colOffsets[c]+(c<frozen.columns?this.scroll.scrollLeft:0))+'px';cell.style.top=(this.rowOffsets[r]+(r<frozen.rows?this.scroll.scrollTop:this.scroll.scrollTop-this._scrollY()))+'px';cell.style.zIndex=r<frozen.rows&&c<frozen.columns?'4':'3'}}
   }
   _visibleRange(offsets,count,scrollPosition,viewportSize,fallbackSize){
     if(!count)return {start:0,end:0};
@@ -1322,35 +1327,36 @@ export class TinyDatagrid {
   }
   layout(){
     this.feature('pivots')?.refresh();
-    this._updateFilteredRows();this.displayColWidths=this.colWidths.map((width,col)=>this.hiddenColumns.has(col)?0:width);this.displayRowHeights=this.rowHeights.map((height,row)=>this.hiddenRows.has(row)||this.filteredRows.has(row)?0:height);this.colOffsets=this.offsets(this.displayColWidths);this.rowOffsets=this.offsets(this.displayRowHeights);const W=this.colOffsets.at(-1),H=this.rowOffsets.at(-1);
+    this._updateFilteredRows();this.displayColWidths=this.hiddenColumns.size?this.colWidths.map((width,col)=>this.hiddenColumns.has(col)?0:width):this.colWidths;this.displayRowHeights=this.hiddenRows.size||this.filteredRows.size?this.rowHeights.map((height,row)=>this.hiddenRows.has(row)||this.filteredRows.has(row)?0:height):this.rowHeights;this.colOffsets=this.offsets(this.displayColWidths);this.rowOffsets=this.offsets(this.displayRowHeights);const W=this.colOffsets.at(-1),H=this.rowOffsets.at(-1);
     this.el.setAttribute('aria-rowcount',String(this.rowCount+1));this.el.setAttribute('aria-colcount',String(this.colCount));
-    this.canvas.style.width=W+'px';this.canvas.style.height=H+'px';
+    if(this.rowCount*this.colCount>100000&&!this.virtualization){this.virtualization=true;this._syncVirtualizationObserver();}
+    this._canvasHeight=this.virtualization?Math.min(H,8000000):H;this.canvas.style.width=W+'px';this.canvas.style.height=this._canvasHeight+'px';
     this.renderHeaders();this.renderCells();this.syncHeaders();this.updateSelectionOverlay();
   }
   render(){this.layout()}
   renderHeaders(){
     this.colHeaders.innerHTML='';this.rowHeaders.innerHTML='';
     const cols=this.virtualization?this._visibleRange(this.colOffsets,this.colCount,this.scroll.scrollLeft,this.scroll.clientWidth,this.options.columnWidth*10):{start:0,end:this.colCount};
-    const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this.scroll.scrollTop,this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
+    const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this._scrollY(),this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
     for(const c of this._renderIndices(cols,'columns')){if(this.virtualization&&!this.displayColWidths[c])continue;const h=document.createElement('div');h.className='tg-colhead';h.textContent=colToName(c);h.style.left=this.colOffsets[c]+'px';h.style.width=this.displayColWidths[c]+'px';h.dataset.col=c;h.setAttribute('role','columnheader');h.setAttribute('aria-colindex',String(c+1));if(this.hiddenColumns.has(c))h.classList.add('tg-hidden-column');const rz=document.createElement('span');rz.className='tg-resize-x';h.append(rz);this.colHeaders.append(h)}
     for(const r of this._renderIndices(rows,'rows')){if(this.virtualization&&!this.displayRowHeights[r])continue;const h=document.createElement('div');h.className='tg-rowhead';h.textContent=String(r+1);h.style.top=this.rowOffsets[r]+'px';h.style.height=this.displayRowHeights[r]+'px';h.dataset.row=r;if(this.hiddenRows.has(r)||this.filteredRows.has(r))h.classList.add('tg-hidden-row');const rz=document.createElement('span');rz.className='tg-resize-y';h.append(rz);this.rowHeaders.append(h)}
   }
   syncHeaders(){
-    const sx=this.scroll?.scrollLeft||0, sy=this.scroll?.scrollTop||0;
+    const sx=this.scroll?.scrollLeft||0, sy=this.scroll?this._scrollY():0;
     this.colHeaders.querySelectorAll('.tg-colhead').forEach(h=>{const c=+h.dataset.col;h.style.left=(this.colOffsets[c]-(c<this._frozenCounts().columns?0:sx))+'px';h.style.zIndex=c<this._frozenCounts().columns?'2':'1'});
     this.rowHeaders.querySelectorAll('.tg-rowhead').forEach(h=>{const r=+h.dataset.row;h.style.top=(this.rowOffsets[r]-(r<this._frozenCounts().rows?0:sy))+'px';h.style.zIndex=r<this._frozenCounts().rows?'2':'1'});
   }
   renderCells(){
     const rowsBefore=this.rowCount,colsBefore=this.colCount;this.engine.settle();this.feature('pivots')?.refresh();if(rowsBefore!==this.rowCount||colsBefore!==this.colCount){this.layout();return}
     this.canvas.innerHTML='';const frag=document.createDocumentFragment(),spills=this.engine.dependencies;
-    const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this.scroll.scrollTop,this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
+    const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this._scrollY(),this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
     const cols=this.virtualization?this._visibleRange(this.colOffsets,this.colCount,this.scroll.scrollLeft,this.scroll.clientWidth,this.options.columnWidth*10):{start:0,end:this.colCount};
     for(const r of this._renderIndices(rows,'rows')){
       if(!this.displayRowHeights[r])continue;
       const rowElement=document.createElement('div');rowElement.setAttribute('role','row');rowElement.setAttribute('aria-rowindex',String(r+2));frag.append(rowElement);
       for(const c of this._renderIndices(cols,'columns')){
       if(this.virtualization&&(!this.displayRowHeights[r]||!this.displayColWidths[c]))continue;
-      const d=document.createElement('div');d.className='tg-cell';d.dataset.row=r;d.dataset.col=c;d.id=`${this._gridId}-cell-${r}-${c}`;d.setAttribute('role','gridcell');d.setAttribute('aria-colindex',String(c+1));d.draggable=false;d.style.left=this.colOffsets[c]+'px';d.style.top=this.rowOffsets[r]+'px';d.style.width=this.displayColWidths[c]+'px';d.style.height=this.displayRowHeights[r]+'px';if(this.hiddenColumns.has(c))d.classList.add('tg-hidden-column');if(this.hiddenRows.has(r)||this.filteredRows.has(r))d.classList.add('tg-hidden-row');
+      const d=document.createElement('div');d.className='tg-cell';d.dataset.row=r;d.dataset.col=c;d.id=`${this._gridId}-cell-${r}-${c}`;d.setAttribute('role','gridcell');d.setAttribute('aria-colindex',String(c+1));d.draggable=false;d.style.left=this.colOffsets[c]+'px';d.style.top=(this.rowOffsets[r]-this._scrollY()+this.scroll.scrollTop)+'px';d.style.width=this.displayColWidths[c]+'px';d.style.height=this.displayRowHeights[r]+'px';if(this.hiddenColumns.has(c))d.classList.add('tg-hidden-column');if(this.hiddenRows.has(r)||this.filteredRows.has(r))d.classList.add('tg-hidden-row');
       const v=this.getComputedValue(r,c);const meta=this.getCell(r,c);
       if(spills.covered.size||spills.spills.size){const calc=this._calculationKey(this.key(r,c)),origin=spills.spills.has(calc)?calc:spills.covered.get(calc),area=origin&&spills.spills.get(origin);if(area){d.classList.add('tg-spilled');if(r===area.row)d.classList.add('tg-spill-t');if(r===area.row+area.rows-1)d.classList.add('tg-spill-b');if(c===area.col)d.classList.add('tg-spill-l');if(c===area.col+area.cols-1)d.classList.add('tg-spill-r')}}
       if(this.table&&r===this.table.headerRow&&c>=this.table.c1&&c<=this.table.c2){d.classList.add('tg-table-header');const label=document.createElement('span');label.className='tg-table-header-label';label.textContent=this.formatValue(v,meta.numberFormat);const trigger=document.createElement('button');trigger.type='button';trigger.className='tg-filter-trigger';trigger.dataset.filterColumn=c;trigger.tabIndex=-1;trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-label',`${this.t('filter')} ${label.textContent}`);trigger.textContent=this.columnFilters.has(c)?'▾•':'▾';d.append(label,trigger)}else d.textContent=this.formatValue(v,meta.numberFormat);
@@ -1372,7 +1378,7 @@ export class TinyDatagrid {
     return String(value);
   }
   getCellAtClient(x,y){
-    const rect=this.scroll.getBoundingClientRect();const frozen=this._frozenCounts(),localX=x-rect.left,localY=y-rect.top;const px=localX+(localX<(this.colOffsets[frozen.columns]||0)?0:this.scroll.scrollLeft),py=localY+(localY<(this.rowOffsets[frozen.rows]||0)?0:this.scroll.scrollTop);
+    const rect=this.scroll.getBoundingClientRect();const frozen=this._frozenCounts(),localX=x-rect.left,localY=y-rect.top;const px=localX+(localX<(this.colOffsets[frozen.columns]||0)?0:this.scroll.scrollLeft),py=localY+(localY<(this.rowOffsets[frozen.rows]||0)?0:this._scrollY());
     const find=(offs,p)=>{let lo=0,hi=offs.length-2;while(lo<=hi){const m=(lo+hi)>>1;if(p<offs[m])hi=m-1;else if(p>=offs[m+1])lo=m+1;else return m}return clamp(lo,0,offs.length-2)};
     return {row:find(this.rowOffsets,py),col:find(this.colOffsets,px)};
   }
@@ -1385,7 +1391,7 @@ export class TinyDatagrid {
     // Each frozen/scrolling pane has its own transform and clipping rectangle.
     const frozen=this._frozenCounts(),width=this.scroll.clientWidth,height=this.scroll.clientHeight;
     const segments=(first,last,axis,limit)=>{
-      const rows=axis==='rows',offsets=rows?this.rowOffsets:this.colOffsets,count=frozen[axis],shift=rows?this.scroll.scrollTop:this.scroll.scrollLeft,boundary=Math.min(limit,offsets[count]||0),parts=[];
+      const rows=axis==='rows',offsets=rows?this.rowOffsets:this.colOffsets,count=frozen[axis],shift=rows?this._scrollY():this.scroll.scrollLeft,boundary=Math.min(limit,offsets[count]||0),parts=[];
       for(const [start,end,delta,min,max] of [[first,Math.min(last,count-1),0,0,boundary],[Math.max(first,count),last,shift,boundary,limit]]){
         if(start>end)continue;
         const rawStart=offsets[start]-delta,rawEnd=offsets[end+1]-delta,lo=Math.max(min,rawStart),hi=Math.min(max,rawEnd);
@@ -1415,16 +1421,27 @@ export class TinyDatagrid {
     if(extend)this.selection={r1:this.anchor.row,c1:this.anchor.col,r2:row,c2:col};else{this.anchor={row,col};this.selection={r1:row,c1:col,r2:row,c2:col}}
     this.scrollToCell(row,col);this.updateSelectionOverlay();this.emit('select',{...this.selection});
   }
+  /** Move by one visible cell; return false at the sheet boundary. */
+  moveSelection(direction,extend=false){
+    const delta={up:[-1,0],down:[1,0],left:[0,-1],right:[0,1]}[direction];
+    if(!delta)return false;
+    const [dr,dc]=delta;
+    let row=(extend?this.selection.r2:this.anchor.row)+dr,col=(extend?this.selection.c2:this.anchor.col)+dc;
+    while(dr&&row>=0&&row<this.rowCount&&!this.displayRowHeights[row])row+=dr;
+    while(dc&&col>=0&&col<this.colCount&&!this.displayColWidths[col])col+=dc;
+    if(row<0||row>=this.rowCount||col<0||col>=this.colCount)return false;
+    this.select(row,col,extend);return true;
+  }
   goTo(row,col){const grew=this.ensureSize(row+1,col+1);if(grew)this.render();this.select(row,col);this.scrollToCell(row,col);return this}
   scrollToCell(row,col){
     const top=this.rowOffsets[row]||0,bottom=this.rowOffsets[row+1]??top,left=this.colOffsets[col]||0,right=this.colOffsets[col+1]??left;
-    const frozen=this._frozenCounts();if(row>=frozen.rows){if(top<this.scroll.scrollTop+this.rowOffsets[frozen.rows])this.scroll.scrollTop=top-this.rowOffsets[frozen.rows];else if(bottom>this.scroll.scrollTop+this.scroll.clientHeight)this.scroll.scrollTop=bottom-this.scroll.clientHeight;}
+    const frozen=this._frozenCounts();if(row>=frozen.rows){if(top<this._scrollY()+this.rowOffsets[frozen.rows])this._setScrollY(top-this.rowOffsets[frozen.rows]);else if(bottom>this._scrollY()+this.scroll.clientHeight)this._setScrollY(bottom-this.scroll.clientHeight);}
     if(col>=frozen.columns){if(left<this.scroll.scrollLeft+this.colOffsets[frozen.columns])this.scroll.scrollLeft=left-this.colOffsets[frozen.columns];else if(right>this.scroll.scrollLeft+this.scroll.clientWidth)this.scroll.scrollLeft=right-this.scroll.clientWidth;}
   }
   edit(row=this.selection.r2,col=this.selection.c2,initial=null){
     if(this.isCellReadOnly(row,col))return false;
     const left=this.options.headerWidth+this._viewOffset(col,'columns'),top=this.options.headerHeight+this._viewOffset(row,'rows');
-    this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.setAttribute('aria-label',`${toA1(row,col)} · ${this.t('editor')}`);this.editor.value=initial??rawText(this.getRawValue(row,col));this.editor.style.display='block';this.editor.style.visibility='visible';this.editor.style.height=Math.min(240,Math.max(this.displayRowHeights[row],this.editor.scrollHeight))+'px';this.editor.focus({preventScroll:true});this.editor.select();this._editing={row,col};
+    this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.setAttribute('aria-label',`${toA1(row,col)} · ${this.t('editor')}`);this.editor.value=initial??rawText(this.getRawValue(row,col));this.editor.style.display='block';this.editor.style.visibility='visible';this.editor.style.height=Math.min(240,Math.max(this.displayRowHeights[row],this.editor.scrollHeight))+'px';this.editor.focus({preventScroll:true});if(initial==null)this.editor.select();else this.editor.setSelectionRange(this.editor.value.length,this.editor.value.length);this._editing={row,col};
   }
   commitEdit(cancel=false){if(!this._editing)return;if(!cancel&&!this.isCellReadOnly(this._editing.row,this._editing.col)){const {row,col}=this._editing;if(this.setCell(row,col,this.editor.value)===false){this.editor.setCustomValidity(this.feature('validation')?.validate(row,col,this.editor.value)||'Invalid value');this.editor.reportValidity();return false}}this.editor.setCustomValidity('');this._editing=null;this.editor.style.display='none';this.el.focus({preventScroll:true})}
   copySelection(){
@@ -1481,10 +1498,18 @@ export class TinyDatagrid {
     };
     headerPress(this.colHeaders,'.tg-colhead','tg-resize-x',(header,event)=>this._openColumnMenu(+header.dataset.col,event));
     headerPress(this.rowHeaders,'.tg-rowhead','tg-resize-y',(header,event)=>this._openRowMenu(+header.dataset.row,event));
-    this._listen(this.editor,'keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(this.commitEdit()===false)return;this.select(Math.min(this.rowCount-1,this.anchor.row+1),this.anchor.col)}else if(e.key==='Escape'){e.preventDefault();this.commitEdit(true)}else if(e.key==='Tab'){e.preventDefault();if(this.commitEdit()===false)return;this.select(this.anchor.row,Math.min(this.colCount-1,this.anchor.col+(e.shiftKey?-1:1)))}});
+    this._listen(this.editor,'keydown',e=>{
+      if(e.isComposing||e.defaultPrevented)return;
+      if((e.key==='Enter'&&!e.shiftKey)||e.key==='Tab'){
+        e.preventDefault();
+        const direction=e.key==='Tab'?(e.shiftKey?'left':'right'):((e.ctrlKey||e.metaKey)?'up':'down');
+        if(this.commitEdit()===false)return;
+        this.moveSelection(direction);
+      }else if(e.key==='Escape'){e.preventDefault();this.commitEdit(true)}
+    });
     this._listen(this.editor,'input',()=>{this.editor.setCustomValidity('');this.editor.style.height=Math.min(240,Math.max(32,this.editor.scrollHeight))+'px'});
     this._listen(this.editor,'blur',()=>this.commitEdit());
-    this._listen(this.el,'keydown',async e=>{if(e.key==='Escape'&&!this.autofillMenu.hidden){e.preventDefault();this._closeAutofillMenu(true);return}if(e.key==='Escape'&&!this.filterMenu.hidden){e.preventDefault();this._closeFilterMenu();return}if(e.key==='Escape'&&!this.contextMenu.hidden){this._closeColumnMenu();return}if(this.contextMenu.contains(e.target)||this.filterMenu.contains(e.target)||this.autofillMenu.contains(e.target)||this._editing||e.target!==this.el)return;const a=this.anchor;
+    this._listen(this.el,'keydown',async e=>{if(e.defaultPrevented||e.isComposing)return;if(e.key==='Escape'&&!this.autofillMenu.hidden){e.preventDefault();this._closeAutofillMenu(true);return}if(e.key==='Escape'&&!this.filterMenu.hidden){e.preventDefault();this._closeFilterMenu();return}if(e.key==='Escape'&&!this.contextMenu.hidden){this._closeColumnMenu();return}if(this.contextMenu.contains(e.target)||this.filterMenu.contains(e.target)||this.autofillMenu.contains(e.target)||this._editing||e.target!==this.el)return;const a=this.anchor;
       if(e.key===' '&&(e.shiftKey||e.ctrlKey||e.metaKey)){e.preventDefault();if(e.shiftKey)this._setRowSelection(a.row);else this._setColumnSelection(a.col);return}
       if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();const row=this.selection.c1===0&&this.selection.c2===this.colCount-1,rect=this.selectionEl.getBoundingClientRect();this._contextMenuPoint={x:rect.left,y:rect.top};this._renderAxisMenu(row?'row':'column',row?a.row:a.col);return}
       if(e.altKey&&e.key==='ArrowDown'){e.preventDefault();const trigger=this.canvas.querySelector(`[data-filter-column="${a.col}"]`);if(trigger)this._openFilterMenu(a.col,trigger);return}
@@ -1496,7 +1521,7 @@ export class TinyDatagrid {
       if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='y'){e.preventDefault();this.redo();return}
       if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='c'){e.preventDefault();await navigator.clipboard?.writeText(this.copySelection());return}
       if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='v'){e.preventDefault();const t=await navigator.clipboard?.readText?.();if(t!=null)this.pasteText(t,a);return}
-      const arrows={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]};if(arrows[e.key]){e.preventDefault();const [dr,dc]=arrows[e.key];let row=(e.shiftKey?this.selection.r2:a.row)+dr,col=(e.shiftKey?this.selection.c2:a.col)+dc;while(dr&&row>=0&&row<this.rowCount&&!this.displayRowHeights[row])row+=dr;while(dc&&col>=0&&col<this.colCount&&!this.displayColWidths[col])col+=dc;if(row>=0&&row<this.rowCount&&col>=0&&col<this.colCount)this.select(row,col,e.shiftKey);return}
+      const arrows={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'};if(arrows[e.key]){e.preventDefault();this.moveSelection(arrows[e.key],e.shiftKey);return}
       if(e.key.length===1&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();this.edit(a.row,a.col,e.key)}
     });
   }

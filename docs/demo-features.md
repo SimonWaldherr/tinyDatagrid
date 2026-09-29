@@ -23,6 +23,8 @@ import 'tiny-datagrid/formula-assist.css';
 const grid = new TinyDatagrid('#sheet', { rows: 100, columns: 12 });
 const $ = selector => document.querySelector(selector);
 const t = featureTranslator('en');
+const status = document.createElement('output');
+document.body.append(status);
 const notify = message => { status.textContent = message; };
 const selection = () => {
   const s = grid.selection;
@@ -88,7 +90,8 @@ and includes labels, dialog semantics, and responsive structure.
 dialog root. The JSON helper expects `showDialog(selector)` to open its dialog,
 and `selection()` to return a normalized `{ r1, c1, r2, c2 }` range. Call
 `json.sync()` after selection and cell changes to update its status chip and
-buttons.
+buttons. Add the `tg-json-chip` class to `#typeStatus` and `tg-json-dialog` to
+the JSON dialog to apply the optional component styling.
 
 ## Themes and visual exports
 
@@ -104,3 +107,8 @@ range?)` opens a print-ready page and the browser print dialog, where the user
 can choose Save as PDF. Both helpers render computed values and visible cells,
 and respect the active theme, cell formatting, and conditional formatting.
 They export the selected or used sheet area without the application's toolbar.
+
+The Home ribbon groups AutoSum, charts, pivot tables, search, recalculation,
+function help, cell references, and column fitting in a compact tools area.
+Pivot opens the sidebar settings, where the summary can be inserted into the
+sheet. Function help and references focus their respective panels for keyboard use.

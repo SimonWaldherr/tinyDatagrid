@@ -327,7 +327,11 @@ referenced `@variables`. Sheet links navigate when the worksheets plugin is
 installed. Moving a selected range is available in the same panel.
 
 The expandable formula textarea and the in-cell editor support **Enter** to
-apply, **Shift+Enter** for a newline, and **Escape** to discard. Formulas accept whitespace
+apply and move down, **Ctrl/Cmd+Enter** to apply and move up, **Tab / Shift+Tab**
+to apply and move right / left, **Shift+Enter** for a newline, and **Escape** to discard.
+Arrow keys move the text cursor while editing. An open autocomplete list uses
+Up/Down to select suggestions and Enter/Tab to accept one; Escape closes it.
+Modified shortcuts still work with suggestions open. Formulas accept whitespace
 and line breaks between tokens. Newlines within quoted text remain literal.
 
 The **ƒ?** panel provides searchable signatures and short DE/EN explanations for
@@ -347,3 +351,50 @@ const options = {
 Host applications can import `functionHelp(name, language, custom)` and
 `documentedFunctions()` from `tiny-datagrid/function-help` to build their own UI.
 Unknown custom functions display a description-unavailable message.
+
+## Cell context menu and worksheet tabs
+
+Both UI features are optional, dependency-free plugins; styles are included in
+`tiny-datagrid/style.css`. The worksheet model also works without a tab UI.
+
+```js
+import TinyDatagrid from 'tiny-datagrid';
+import { worksheets } from 'tiny-datagrid/worksheets';
+import { worksheetTabs } from 'tiny-datagrid/worksheet-tabs';
+import { cellContextMenu } from 'tiny-datagrid/cell-context-menu';
+import 'tiny-datagrid/style.css';
+
+const grid = new TinyDatagrid('#grid', {
+  plugins: [
+    worksheets(),
+    cellContextMenu({ items: [{
+      id: 'inspect', label: 'Inspect cell',
+      action: grid => console.log(grid.getCell(grid.anchor.row, grid.anchor.col))
+    }] }),
+    worksheetTabs({ container: '#sheet-tabs' })
+  ]
+});
+const book = grid.feature('worksheets');
+const id = book.add('Planning');
+book.select(id);
+book.rename(id, 'Schedule');
+```
+
+Right-click a cell or press Shift+F10 to open the cell menu. An existing selection
+is retained when right-clicking inside it. Arrow keys navigate menu items; Escape
+closes it. Clipboard actions use the browser Clipboard API and report failures
+through `contextmenuerror` (`{error}`). Custom items append to the built-in actions.
+Row and column headers keep their existing axis menus.
+
+The tab bar offers `+`, sheet switching, and double-click/right-click/F2 to rename
+or delete a sheet. Deletion requires a second confirmation and cannot remove the
+last sheet. Sheet deletion is not undoable. Names must be nonempty and unique;
+mutations respect read-only mode. Tab UI failures emit `worksheeterror` (`{error}`).
+Both UI plugins accept `translate(key)`; German and English defaults are included.
+
+`book.importSheet(sheet)` replaces only the active sheet and participates in its
+undo history. The demo uses it for example content; opening a workbook replaces
+the complete collection. Workbook export and autosave preserve every sheet and
+the active sheet ID. Draft recovery remembers its owning sheet. Existing rules
+for sheet-name references apply: stable sheet IDs survive renames; name-based
+references must be updated when renaming a sheet.
