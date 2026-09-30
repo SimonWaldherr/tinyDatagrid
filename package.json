@@ -56,6 +56,14 @@
       "types": "./src/data-tools.d.ts",
       "import": "./src/data-tools.js"
     },
+    "./rule-tools": {
+      "types": "./src/rule-tools.d.ts",
+      "import": "./src/rule-tools.js"
+    },
+    "./list-dropdown": {
+      "types": "./src/list-dropdown.d.ts",
+      "import": "./src/list-dropdown.js"
+    },
     "./formula-assist": {
       "types": "./src/formula-assist.d.ts",
       "import": "./src/formula-assist.js"
@@ -99,6 +107,18 @@
     "./worksheet-tabs": {
       "types": "./src/worksheet-tabs.d.ts",
       "import": "./src/worksheet-tabs.js"
+    },
+    "./analysis": {
+      "types": "./src/analysis.d.ts",
+      "import": "./src/analysis.js"
+    },
+    "./heatmap": {
+      "types": "./src/heatmap.d.ts",
+      "import": "./src/heatmap.js"
+    },
+    "./simulations": {
+      "types": "./src/simulations.d.ts",
+      "import": "./src/simulations.js"
     }
   },
   "files": [
@@ -111,7 +131,7 @@
     "**/*.css"
   ],
   "scripts": {
-    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs && node test-editor-layout.mjs && node test-worksheets.mjs && node test-data-tools.mjs",
+    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs && node test-editor-layout.mjs && node test-worksheets.mjs && node test-data-tools.mjs && node test-pivots.mjs && node test-rules.mjs",
     "benchmark": "node benchmarks/recalculation.mjs",
     "benchmark:large": "node --max-old-space-size=2048 benchmarks/large-grid.mjs"
   }

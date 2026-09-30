@@ -632,7 +632,7 @@ export class PivotEngine {
       rowKeys:rowKeys.map(k=>JSON.parse(k)), colKeys:colKeys.map(k=>JSON.parse(k)), matrix,
       toTable({totalLabel='Total'}={}){
         const header=[...rowFields];
-        for(const ck of this.colKeys){ for(const vd of valueDefs) header.push(`${ck.join(' / ') || totalLabel} · ${vd.as||vd.field}`); }
+        for(const ck of this.colKeys){ for(const vd of valueDefs) header.push(colFields.length?`${ck.join(' / ') || totalLabel} · ${vd.as||vd.field}`:String(vd.as||vd.field)); }
         const rows=[header];
         this.rowKeys.forEach((rk,ri)=>{ const row=[...rk]; this.colKeys.forEach((ck,ci)=>valueDefs.forEach(vd=>row.push(matrix[ri][ci][vd.as||(vd.field+'|'+vd.aggregate)]))); rows.push(row); });
         return rows;
@@ -651,7 +651,7 @@ export class TinyDatagrid {
     this.locale=options.locale||'en';this._gridId=`tinygrid-${++gridSequence}`;
     this.rowCount=this.options.rows; this.colCount=this.options.columns;
     this.rowHeights=Array(this.rowCount).fill(this.options.rowHeight); this.colWidths=Array(this.colCount).fill(this.options.columnWidth);
-    this.pivotTables=[];this._features=new Map();this.externalVariables=new Map(Object.entries(options.externalVariables||{}).map(([name,value])=>[name.replace(/^@/,''),value]));this.validationRules=[];this.cells=new Map(); this.variables=new Map(); this.engine=new FormulaEngine(this); this.selection={r1:0,c1:0,r2:0,c2:0}; this.anchor={row:0,col:0}; this.hiddenColumns=new Set(); this.hiddenRows=new Set();
+    this.visualizations=[];this.pivotTables=[];this._features=new Map();this.externalVariables=new Map(Object.entries(options.externalVariables||{}).map(([name,value])=>[name.replace(/^@/,''),value]));this.validationRules=[];this.cells=new Map(); this.variables=new Map(); this.engine=new FormulaEngine(this); this.selection={r1:0,c1:0,r2:0,c2:0}; this.anchor={row:0,col:0}; this.hiddenColumns=new Set(); this.hiddenRows=new Set();
     this.table=null;this.columnFilters=new Map();this.filteredRows=new Set();this.sheetName=options.sheetName||'Sheet1';this.freezePanes={rows:0,columns:0};this.conditionalFormats=[];
     this.sqlBinding=null;
     this.readOnly=Boolean(options.readOnly);
@@ -663,6 +663,41 @@ export class TinyDatagrid {
     this.setLocale(this.locale); this.bind();
     if (options.data) this.load(options.data);
   }
+  get table(){return this._tables?.find(t=>t.id===this._activeTableId)||this._tables?.[0]||null}
+  set table(value){this._tables=value?[{...value,id:value.id||'table1',name:value.name||'Table 1',filters:new Map(value.filters instanceof Map?value.filters:[])}]:[];this._activeTableId=this._tables[0]?.id||null}
+  get columnFilters(){return this.table?.filters||(this._emptyFilters??=new Map())}
+  set columnFilters(value){if(this.table)this.table.filters=value;else this._emptyFilters=value}
+  tableAt(row,col){return this._tables.find(t=>row>=t.r1&&row<=t.r2&&col>=t.c1&&col<=t.c2)||null}
+  listTables(){return this._tables.map(({filters,...t})=>({...t,filters:[...filters].map(([column,values])=>({column,values:[...values]}))}))}
+  activateTable(id){if(!this._tables.some(t=>t.id===id))throw new Error('Unknown table');this._activeTableId=id;this.emit('tableactivate',{id});return this}
+  _restoreTables(tables){
+    if(!Array.isArray(tables))return;
+    const restored=[],ids=new Set();
+    for(const t of tables){
+      if(!t||typeof t.id!=='string'||ids.has(t.id)||!['r1','r2','c1','c2','headerRow'].every(k=>Number.isInteger(t[k])&&t[k]>=0)||t.r2<t.r1||t.c2<t.c1||t.headerRow<t.r1||t.headerRow>t.r2)throw new TypeError('Invalid table');
+      if(restored.some(a=>a.r1<=t.r2&&a.r2>=t.r1&&a.c1<=t.c2&&a.c2>=t.c1))throw new TypeError('Tables cannot overlap');
+      ids.add(t.id);restored.push({...t,filters:new Map((t.filters||[]).map(f=>[f.column,new Set(f.values.map(String))]))});
+    }
+    this._tables=restored;this._activeTableId=restored[0]?.id||null;
+  }
+  _shiftTableRanges(axis,index,delta){
+    const start=axis==='row'?'r1':'c1',end=axis==='row'?'r2':'c2';
+    this._tables=this._tables.filter(t=>!(delta<0&&(axis==='row'?t.headerRow===index:t.c1===t.c2&&t.c1===index)));
+    for(const p of this.pivotTables)if(p.table&&!this._tables.some(t=>t.id===p.table))delete p.table;
+    for(const t of this._tables){if(index<=t[end]){if(index<t[start]||delta>0&&index===t[start])t[start]+=delta;t[end]+=delta;if(axis==='row'&&index<=t.headerRow)t.headerRow+=delta;}
+      if(axis==='column')t.filters=new Map([...t.filters].filter(([c])=>delta>0||c!==index).map(([c,v])=>[c>=index?c+delta:c,v]));}
+    for(const v of this.visualizations){if(index<=v.range[end]){if(index<v.range[start]||delta>0&&index===v.range[start])v.range[start]=Math.max(0,v.range[start]+delta);v.range[end]=Math.max(v.range[start],v.range[end]+delta);}}
+    // A pivot keeps its source and its result in step with the sheet (a pivot bound to a table follows the table).
+    const place=axis==='row'?'row':'col';
+    for(const p of this.pivotTables){
+      for(const range of [p.source,p.output])if(range&&index<=range[end]){if(index<range[start]||delta>0&&index===range[start])range[start]=Math.max(0,range[start]+delta);range[end]=Math.max(range[start],range[end]+delta)}
+      if(p.target&&index<=p.target[place])p.target[place]=Math.max(0,p.target[place]+delta);
+    }
+  }
+  isTableRowVisible(row,col){const t=this.tableAt(row,col);return !this.hiddenRows.has(row)&&(!t||row<=t.headerRow||[...t.filters].every(([c,values])=>values.has(String(this.getComputedValue(row,c)??''))))}
+  listObjects(){return [...this.listTables().map(t=>({id:t.id,type:'table',name:t.name,range:{r1:t.r1,c1:t.c1,r2:t.r2,c2:t.c2}})),...this.pivotTables.map(p=>({id:p.id,type:'pivot',name:p.id,range:{...p.output}})),...(this.visualizations||[]).map(v=>({...structuredClone(v),type:'chart'})),...this.conditionalFormats.flatMap((rule,index)=>rule.type==='colorScale'?[{id:`heatmap${index}`,type:'heatmap',name:`Heatmap ${index+1}`,range:{...rule.range},ruleIndex:index}]:[])]}
+  saveVisualization({name,range,chartType='column'}){if(this.readOnly)return false;if(!range||!['r1','r2','c1','c2'].every(k=>Number.isInteger(range[k])&&range[k]>=0)||range.r2<range.r1||range.c2<range.c1)throw new TypeError('Invalid visualization range');let n=1;while(this.visualizations.some(v=>v.id===`chart${n}`))n++;const id=`chart${n}`;this.visualizations.push({id,name:String(name||`Chart ${n}`),range:{...range},chartType});this.emit('objects',{});return id}
+  removeVisualization(id){if(this.readOnly)return false;this.visualizations=this.visualizations.filter(v=>v.id!==id);this.emit('objects',{});return this}
   _calculationKey(key){return this.feature('worksheets')?.calculationKey(key)||key}
   get cells(){return this._cells}
   set cells(entries){this._cells=new CellMap(this,entries);this.engine?.clearCache()}
@@ -751,7 +786,7 @@ export class TinyDatagrid {
     return outcome===false?none:result;
   }
   _cloneSQLBinding(binding){return binding?{...binding,columns:[...binding.columns],keyColumns:[...binding.keyColumns],editableColumns:binding.editableColumns?[...binding.editableColumns]:null,seenCursors:new Set(binding.seenCursors||[]),sqlRowIds:new Map(binding.sqlRowIds),originalRows:new Map(binding.originalRows),inserted:new Set(binding.inserted),deleted:new Map(binding.deleted)}:null}
-  _snapshot(){return {pivotTables:structuredClone(this.pivotTables),validationRules:structuredClone(this.validationRules),variables:new Map(this.variables),cells:new Map(this.cells),rowCount:this.rowCount,colCount:this.colCount,rowHeights:[...this.rowHeights],colWidths:[...this.colWidths],hiddenColumns:new Set(this.hiddenColumns),hiddenRows:new Set(this.hiddenRows),table:this.table?{...this.table}:null,columnFilters:new Map([...this.columnFilters].map(([k,v])=>[k,new Set(v)])),sheetName:this.sheetName,freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),sqlBinding:this._cloneSQLBinding(this.sqlBinding)}}
+  _snapshot(){return {tables:this.listTables(),visualizations:structuredClone(this.visualizations),pivotTables:structuredClone(this.pivotTables),validationRules:structuredClone(this.validationRules),variables:new Map(this.variables),cells:new Map(this.cells),rowCount:this.rowCount,colCount:this.colCount,rowHeights:[...this.rowHeights],colWidths:[...this.colWidths],hiddenColumns:new Set(this.hiddenColumns),hiddenRows:new Set(this.hiddenRows),sheetName:this.sheetName,freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),sqlBinding:this._cloneSQLBinding(this.sqlBinding)}}
   _recordHistory(){if((this.historyLimit||this.feature('validation')||this.feature('conditionalFormatting')||this.feature('pivots'))&&!this._historyBefore)this._historyBefore=this._snapshot()}
   _finishHistory(){
     if(this._historyDepth||!this._historyBefore)return;
@@ -775,7 +810,7 @@ export class TinyDatagrid {
   }
   clearHistory(){this._historyBefore=null;this._pendingRemoteChanges=null;this._history.length=0;this._future.length=0;this.emit('history',{undo:0,redo:0});return this}
   get historyState(){if(!this._historyDepth)this._finishHistory();return {undo:this._history.length,redo:this._future.length}}
-  _restore(state){this.pivotTables=structuredClone(state.pivotTables||[]);this.validationRules=structuredClone(state.validationRules||[]);this.variables=new Map(state.variables);this.cells=new Map(state.cells);this.rowCount=state.rowCount;this.colCount=state.colCount;this.rowHeights=[...state.rowHeights];this.colWidths=[...state.colWidths];this.hiddenColumns=new Set(state.hiddenColumns||[]);this.hiddenRows=new Set(state.hiddenRows||[]);this.table=state.table?{...state.table}:null;this.columnFilters=new Map([...state.columnFilters||[]].map(([k,v])=>[k,new Set(v)]));this.sheetName=state.sheetName||'Sheet1';this.freezePanes={rows:0,columns:0,...state.freezePanes};this.conditionalFormats=structuredClone(state.conditionalFormats||[]);this.sqlBinding=this._cloneSQLBinding(state.sqlBinding);this.anchor={row:clamp(this.anchor.row,0,this.rowCount-1),col:clamp(this.anchor.col,0,this.colCount-1)};this.selection={r1:clamp(this.selection.r1,0,this.rowCount-1),c1:clamp(this.selection.c1,0,this.colCount-1),r2:clamp(this.selection.r2,0,this.rowCount-1),c2:clamp(this.selection.c2,0,this.colCount-1)};this.engine.clearCache();this.render();this.emit('change',{type:'history'})}
+  _restore(state){this.visualizations=structuredClone(state.visualizations||[]);this.pivotTables=structuredClone(state.pivotTables||[]);this.validationRules=structuredClone(state.validationRules||[]);this.variables=new Map(state.variables);this.cells=new Map(state.cells);this.rowCount=state.rowCount;this.colCount=state.colCount;this.rowHeights=[...state.rowHeights];this.colWidths=[...state.colWidths];this.hiddenColumns=new Set(state.hiddenColumns||[]);this.hiddenRows=new Set(state.hiddenRows||[]);this.table=state.table?{...state.table}:null;this.columnFilters=new Map([...state.columnFilters||[]].map(([k,v])=>[k,new Set(v)]));this.sheetName=state.sheetName||'Sheet1';this.freezePanes={rows:0,columns:0,...state.freezePanes};this.conditionalFormats=structuredClone(state.conditionalFormats||[]);this.sqlBinding=this._cloneSQLBinding(state.sqlBinding);this.anchor={row:clamp(this.anchor.row,0,this.rowCount-1),col:clamp(this.anchor.col,0,this.colCount-1)};this.selection={r1:clamp(this.selection.r1,0,this.rowCount-1),c1:clamp(this.selection.c1,0,this.colCount-1),r2:clamp(this.selection.r2,0,this.rowCount-1),c2:clamp(this.selection.c2,0,this.colCount-1)};this._restoreTables(state.tables);this._activeTableId=state.activeTableId||this.tableAt(this.anchor.row,this.anchor.col)?.id||this._activeTableId;this.engine.clearCache();this.render();this.emit('change',{type:'history'})}
   get canUndo(){return this.historyState.undo>0}
   get canRedo(){return this.historyState.redo>0}
   undo(){
@@ -808,7 +843,7 @@ export class TinyDatagrid {
   }
   isCellReadOnly(row,col){if(this.feature('pivots')&&this.getCell(row,col).pivotOwner)return true;if(this.readOnly)return true;if(!this.sqlBinding)return false;if(row===this.sqlBinding.headerRow||!this.sqlBinding.keyColumns.length)return true;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];if(!column)return true;return Boolean(column.readOnly||column.primaryKey||this.sqlBinding.keyColumns.includes(column.name)||(this.sqlBinding.editableColumns&&!this.sqlBinding.editableColumns.includes(column.name)))}
   _coerceSQLValue(col,value){if(!this.sqlBinding||typeof value!=='string'||value.startsWith('='))return value;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];return coerceDataValue(value,{type:column?.type||'unknown',locale:this.options.dataLocale||'en-US'})}
-  setCell(row,col,value,meta={}){value=unwrapCellValue(value);const originalInput=value;if(this.sqlBinding&&this.isCellReadOnly(row,col))return false;value=this._coerceSQLValue(col,value);this._recordHistory();const grew=this.ensureSize(row+1,col+1);const k=this.key(row,col);const old=this.cells.get(k)||{};this.cells.set(k,{...old,...meta,raw:value,originalInput});this._updateFilteredRows();this.emit('change',{row,col,value});if(grew||this.table)this.render();else this.renderCells();return true}
+  setCell(row,col,value,meta={}){value=unwrapCellValue(value);const originalInput=value;if(this.sqlBinding&&this.isCellReadOnly(row,col))return false;value=this._coerceSQLValue(col,value);this._recordHistory();const grew=this.ensureSize(row+1,col+1);const k=this.key(row,col);const old=this.cells.get(k)||{};this.cells.set(k,{...old,...meta,raw:value,originalInput});this._growTable(row,col,value);this._updateFilteredRows();this.emit('change',{row,col,value});if(grew||this.table)this.render();else this.renderCells();return true}
   getCell(row,col){return this.cells.get(this.key(row,col))||{raw:''}}
   getOriginalValue(row,col){this.getRawValue(row,col);const cell=this.getCell(row,col);return Object.hasOwn(cell,'originalInput')?cell.originalInput:this.getRawValue(row,col)}
   getRawValue(row,col){this.engine?.dependencies.read(this._calculationKey(this.key(row,col)));const cell=this.getCell(row,col);return Object.hasOwn(cell,'raw')?cell.raw:''}
@@ -862,14 +897,14 @@ export class TinyDatagrid {
   setColumnWidth(col,w){this.colWidths[col]=clamp(w,36,800);this.layout();this.emit('resize',{type:'column',index:col,size:this.colWidths[col]});}
   hideRow(row){if(row<0||row>=this.rowCount||this.hiddenRows.has(row)||this.hiddenRows.size>=this.rowCount-1)return false;this._recordHistory();this.hiddenRows.add(row);let visible=row+1;while(visible<this.rowCount&&this.hiddenRows.has(visible))visible++;if(visible>=this.rowCount){visible=row-1;while(visible>=0&&this.hiddenRows.has(visible))visible--}visible=Math.max(0,visible);this.anchor={row:visible,col:0};this.selection={r1:visible,c1:0,r2:visible,c2:this.colCount-1};this.layout();this.emit('rowhide',{index:row});this.emit('select',{...this.selection});return true}
   showAllRows(){if(!this.hiddenRows.size)return false;const rows=[...this.hiddenRows].sort((a,b)=>a-b);this._recordHistory();this.hiddenRows.clear();this.layout();this.emit('rowshow',{rows});return true}
-  insertRow(index){if(this.sqlBinding)return this.insertRecord({});index=clamp(index,0,this.rowCount);this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);shifted.set(this.key(row>=index?row+1:row,col),value)}this.cells=shifted;this.rowHeights.splice(index,0,this.options.rowHeight);this.hiddenRows=new Set([...this.hiddenRows].map(row=>row>=index?row+1:row));this.rowCount++;this.engine.clearCache();this.anchor={row:index,col:0};this.selection={r1:index,c1:0,r2:index,c2:this.colCount-1};this.render();this.emit('change',{type:'rowinsert',index});return this}
-  deleteRow(index,{history=true,trackSQL=true}={}){if(trackSQL&&this.sqlBinding)return this.deleteRecord(index);if(index<0||index>=this.rowCount||this.rowCount<=1)return false;if(history)this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);if(row!==index)shifted.set(this.key(row>index?row-1:row,col),value)}this.cells=shifted;this.rowHeights.splice(index,1);this.hiddenRows=new Set([...this.hiddenRows].filter(row=>row!==index).map(row=>row>index?row-1:row));if(this.sqlBinding)this.sqlBinding.sqlRowIds=new Map([...this.sqlBinding.sqlRowIds].filter(([row])=>row!==index).map(([row,id])=>[row>index?row-1:row,id]));this.rowCount--;const selected=Math.min(index,this.rowCount-1);this.anchor={row:selected,col:0};this.selection={r1:selected,c1:0,r2:selected,c2:this.colCount-1};this.engine.clearCache();this.render();this.emit('change',{type:'rowdelete',index});return true}
+  insertRow(index){if(this.sqlBinding)return this.insertRecord({});index=clamp(index,0,this.rowCount);this._recordHistory();this._shiftTableRanges('row',index,1);const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);shifted.set(this.key(row>=index?row+1:row,col),value)}this.cells=shifted;this.rowHeights.splice(index,0,this.options.rowHeight);this.hiddenRows=new Set([...this.hiddenRows].map(row=>row>=index?row+1:row));this.rowCount++;this.engine.clearCache();this.anchor={row:index,col:0};this.selection={r1:index,c1:0,r2:index,c2:this.colCount-1};this.render();this.emit('change',{type:'rowinsert',index});return this}
+  deleteRow(index,{history=true,trackSQL=true}={}){if(trackSQL&&this.sqlBinding)return this.deleteRecord(index);if(index<0||index>=this.rowCount||this.rowCount<=1)return false;if(history)this._recordHistory();this._shiftTableRanges('row',index,-1);const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);if(row!==index)shifted.set(this.key(row>index?row-1:row,col),value)}this.cells=shifted;this.rowHeights.splice(index,1);this.hiddenRows=new Set([...this.hiddenRows].filter(row=>row!==index).map(row=>row>index?row-1:row));if(this.sqlBinding)this.sqlBinding.sqlRowIds=new Map([...this.sqlBinding.sqlRowIds].filter(([row])=>row!==index).map(([row,id])=>[row>index?row-1:row,id]));this.rowCount--;const selected=Math.min(index,this.rowCount-1);this.anchor={row:selected,col:0};this.selection={r1:selected,c1:0,r2:selected,c2:this.colCount-1};this.engine.clearCache();this.render();this.emit('change',{type:'rowdelete',index});return true}
   clearRow(index){if(this.sqlBinding&&(this.readOnly||index===this.sqlBinding.headerRow))return false;this._recordHistory();for(let col=0;col<this.colCount;col++){if(this.sqlBinding&&this.isCellReadOnly(index,col))continue;const key=this.key(index,col),cell=this.cells.get(key);if(cell)this.cells.set(key,{...cell,raw:''})}this.renderCells();this.emit('change',{type:'rowclear',index});return true}
   autoFitRow(index){let lines=1;for(let col=0;col<this.colCount;col++){if(this.hiddenColumns.has(col))continue;lines=Math.max(lines,String(this.formatValue(this.getComputedValue(index,col),this.getCell(index,col).numberFormat)??'').split('\n').length)}this._recordHistory();this.setRowHeight(index,clamp(lines*18+10,28,400));return this.rowHeights[index]}
   hideColumn(col){if(col<0||col>=this.colCount||this.hiddenColumns.has(col)||this.hiddenColumns.size>=this.colCount-1)return false;this._recordHistory();this.hiddenColumns.add(col);let visible=col+1;while(visible<this.colCount&&this.hiddenColumns.has(visible))visible++;if(visible>=this.colCount){visible=col-1;while(visible>=0&&this.hiddenColumns.has(visible))visible--}visible=Math.max(0,visible);this.anchor={row:0,col:visible};this.selection={r1:0,c1:visible,r2:this.rowCount-1,c2:visible};this.layout();this.emit('columnhide',{index:col});this.emit('select',{...this.selection});return true}
   showAllColumns(){if(!this.hiddenColumns.size)return false;const columns=[...this.hiddenColumns].sort((a,b)=>a-b);this._recordHistory();this.hiddenColumns.clear();this.layout();this.emit('columnshow',{columns});return true}
-  insertColumn(index){if(this.sqlBinding)return false;index=clamp(index,0,this.colCount);this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);shifted.set(this.key(row,col>=index?col+1:col),value)}this.cells=shifted;this.colWidths.splice(index,0,this.options.columnWidth);this.hiddenColumns=new Set([...this.hiddenColumns].map(col=>col>=index?col+1:col));this.colCount++;this.engine.clearCache();this.anchor={row:0,col:index};this.selection={r1:0,c1:index,r2:this.rowCount-1,c2:index};this.render();this.emit('change',{type:'columninsert',index});return this}
-  deleteColumn(index){if(this.sqlBinding||index<0||index>=this.colCount||this.colCount<=1)return false;this._recordHistory();const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);if(col!==index)shifted.set(this.key(row,col>index?col-1:col),value)}this.cells=shifted;this.colWidths.splice(index,1);this.hiddenColumns=new Set([...this.hiddenColumns].filter(col=>col!==index).map(col=>col>index?col-1:col));this.colCount--;const selected=Math.min(index,this.colCount-1);this.anchor={row:0,col:selected};this.selection={r1:0,c1:selected,r2:this.rowCount-1,c2:selected};this.engine.clearCache();this.render();this.emit('change',{type:'columndelete',index});return true}
+  insertColumn(index){if(this.sqlBinding)return false;index=clamp(index,0,this.colCount);this._recordHistory();this._shiftTableRanges('column',index,1);const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);shifted.set(this.key(row,col>=index?col+1:col),value)}this.cells=shifted;this.colWidths.splice(index,0,this.options.columnWidth);this.hiddenColumns=new Set([...this.hiddenColumns].map(col=>col>=index?col+1:col));this.colCount++;this.engine.clearCache();this.anchor={row:0,col:index};this.selection={r1:0,c1:index,r2:this.rowCount-1,c2:index};this.render();this.emit('change',{type:'columninsert',index});return this}
+  deleteColumn(index){if(this.sqlBinding||index<0||index>=this.colCount||this.colCount<=1)return false;this._recordHistory();this._shiftTableRanges('column',index,-1);const shifted=new Map();for(const [key,value] of this.cells){const [row,col]=key.split(',').map(Number);if(col!==index)shifted.set(this.key(row,col>index?col-1:col),value)}this.cells=shifted;this.colWidths.splice(index,1);this.hiddenColumns=new Set([...this.hiddenColumns].filter(col=>col!==index).map(col=>col>index?col-1:col));this.colCount--;const selected=Math.min(index,this.colCount-1);this.anchor={row:0,col:selected};this.selection={r1:0,c1:selected,r2:this.rowCount-1,c2:selected};this.engine.clearCache();this.render();this.emit('change',{type:'columndelete',index});return true}
   clearColumn(index){if(this.sqlBinding&&(this.readOnly||this.isCellReadOnly(this.sqlBinding.headerRow+1,index)))return false;this._recordHistory();for(let row=0;row<this.rowCount;row++){if(this.sqlBinding&&(row===this.sqlBinding.headerRow||this.isCellReadOnly(row,index)))continue;const key=this.key(row,index),cell=this.cells.get(key);if(cell)this.cells.set(key,{...cell,raw:''})}this.renderCells();this.emit('change',{type:'columnclear',index});return true}
   autoFitColumn(index){const ctx=document.createElement('canvas').getContext('2d');ctx.font=getComputedStyle(this.el).font;let width=colToName(index).length*8+20;for(let row=0;row<this.rowCount;row++){const text=this.formatValue(this.getComputedValue(row,index),this.getCell(row,index).numberFormat);width=Math.max(width,ctx.measureText(String(text??'')).width+18)}this._recordHistory();this.setColumnWidth(index,clamp(Math.ceil(width),48,800));return this.colWidths[index]}
   load(data,startRow=0,startCol=0){
@@ -954,7 +989,7 @@ export class TinyDatagrid {
   importCSV(text,options={}){return this.importDelimited(text,{...options,delimiter:options.delimiter||detectDelimiter(text)})}
   _importMatrix(data,{startRow=0,startCol=0,replace=false,preserveDataSource=false,cellFormats=null,textCells=null,originalRows=null}={}){
     if(!Array.isArray(data)||!data.length)return 0;const width=Math.max(0,...data.map(row=>Array.isArray(row)?row.length:0));this._recordHistory();
-    if(replace){this.pivotTables=[];this.validationRules=[];this.conditionalFormats=[];this.freezePanes={rows:0,columns:0};this.cells=new Map();this.hiddenRows.clear();this.hiddenColumns.clear();this.table=null;this.columnFilters.clear();this.sqlBinding=null;this.rowCount=Math.max(1,this.options.rows,startRow+data.length);this.colCount=Math.max(1,this.options.columns,startCol+width);this.rowHeights=Array(this.rowCount).fill(this.options.rowHeight);this.colWidths=Array(this.colCount).fill(this.options.columnWidth)}else if(!preserveDataSource)this.sqlBinding=null;
+    if(replace){this.visualizations=[];this.pivotTables=[];this.validationRules=[];this.conditionalFormats=[];this.freezePanes={rows:0,columns:0};this.cells=new Map();this.hiddenRows.clear();this.hiddenColumns.clear();this.table=null;this.columnFilters.clear();this.sqlBinding=null;this.rowCount=Math.max(1,this.options.rows,startRow+data.length);this.colCount=Math.max(1,this.options.columns,startCol+width);this.rowHeights=Array(this.rowCount).fill(this.options.rowHeight);this.colWidths=Array(this.colCount).fill(this.options.columnWidth)}else if(!preserveDataSource)this.sqlBinding=null;
     else for(let r=startRow;r<startRow+data.length;r++)for(let c=startCol;c<startCol+width;c++)this.cells.delete(this.key(r,c));
     data.forEach((row,r)=>Array.isArray(row)&&row.forEach((value,c)=>{const format=cellFormats?.get(`${r},${c}`);this.cells.set(this.key(startRow+r,startCol+c),{...(originalRows?{originalInput:originalRows[r]?.[c]}:{}),...(format?{numberFormat:format}:{}),...(textCells?.has(`${r},${c}`)?{valueType:'text'}:{}),raw:value})}));
     this.ensureSize(startRow+data.length,startCol+width);this.engine.clearCache();this.render();this.emit('change',{type:'import',rows:data.length,replace});return data.length;
@@ -1007,7 +1042,7 @@ export class TinyDatagrid {
     }
     if(!formulas&&values&&computedValues)for(const info of this.getSpillRanges())for(let r=info.row;r<info.row+info.rows;r++)for(let c=info.col;c<info.col+info.cols;c++)if(r!==info.row||c!==info.col)cells.push({row:r,col:c,value:toPortableValue(this.getComputedValue(r,c))});
     const dims=dimensions?{rows:this.rowCount,columns:this.colCount,rowHeights:[...this.rowHeights],columnWidths:[...this.colWidths],hiddenRows:[...this.hiddenRows].sort((a,b)=>a-b),hiddenColumns:[...this.hiddenColumns].sort((a,b)=>a-b)}:undefined;
-    const sheet={id:'sheet1',name:this.sheetName,cells,variables:toPortableValue(Object.fromEntries(this.variables)),...(dims?{dimensions:dims}:{}),freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),validationRules:structuredClone(this.validationRules),pivotTables:structuredClone(this.pivotTables),table:this.table?{...this.table}:null,filters:[...this.columnFilters].map(([column,values])=>({column,values:[...values]}))};
+    const sheet={id:'sheet1',name:this.sheetName,activeTableId:this._activeTableId,tables:this.listTables(),visualizations:structuredClone(this.visualizations),cells,variables:toPortableValue(Object.fromEntries(this.variables)),...(dims?{dimensions:dims}:{}),freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),validationRules:structuredClone(this.validationRules),pivotTables:structuredClone(this.pivotTables),table:this.table?{...this.table,filters:undefined}:null,filters:[...this.columnFilters].map(([column,values])=>({column,values:[...values]}))};
     const workbook={format:'tinyDatagrid-workbook',version:2,activeSheetId:'sheet1',sheets:[sheet],cells,variables:sheet.variables};
     if(dims)workbook.dimensions=dims;
     return workbook;
@@ -1026,7 +1061,7 @@ export class TinyDatagrid {
     const payload=activeSheet||workbook;if(!Array.isArray(payload.cells))throw new TypeError('Workbook sheet must contain a cells array');
     this._recordHistory();if(replace){this.cells=new Map();this.sqlBinding=null}
     const dims=payload.dimensions||workbook.dimensions;
-    if(replace){this.pivotTables=structuredClone(payload.pivotTables||[]);this.sheetName=payload.name||'Sheet1';this.freezePanes={rows:0,columns:0,...payload.freezePanes};this.conditionalFormats=structuredClone(payload.conditionalFormats||[]);this.validationRules=structuredClone(payload.validationRules||[]);this.feature('validation')?.checkRules(this.validationRules);this.feature('conditionalFormatting')?.checkRules(this.conditionalFormats);this.table=payload.table?{...payload.table}:null;this.columnFilters=new Map((payload.filters||[]).map(item=>[Number(item.column),new Set((item.values||[]).map(String))]))}
+    if(replace){this.visualizations=(payload.visualizations||[]).map(v=>{if(!v||typeof v.id!=='string'||!v.range||!['r1','r2','c1','c2'].every(k=>Number.isInteger(v.range[k])&&v.range[k]>=0)||v.range.r2<v.range.r1||v.range.c2<v.range.c1)throw new TypeError('Invalid visualization');return {id:v.id,name:String(v.name||v.id),chartType:String(v.chartType||'column'),range:{...v.range}}});this.pivotTables=structuredClone(payload.pivotTables||[]);this.sheetName=payload.name||'Sheet1';this.freezePanes={rows:0,columns:0,...payload.freezePanes};this.conditionalFormats=structuredClone(payload.conditionalFormats||[]);this.validationRules=structuredClone(payload.validationRules||[]);this.feature('validation')?.checkRules(this.validationRules);this.feature('conditionalFormatting')?.checkRules(this.conditionalFormats);this.table=payload.table?{...payload.table}:null;this.columnFilters=new Map((payload.filters||[]).map(item=>[Number(item.column),new Set((item.values||[]).map(String))]));this._restoreTables(payload.tables);if(this._tables.some(t=>t.id===payload.activeTableId))this._activeTableId=payload.activeTableId}
     if(replace&&dimensions&&dims&&startRow===0&&startCol===0){
       this.rowCount=Math.max(1,Math.trunc(Number(dims.rows)||1));this.colCount=Math.max(1,Math.trunc(Number(dims.columns)||1));
       this.rowHeights=Array.from({length:this.rowCount},(_,i)=>clamp(Number(dims.rowHeights?.[i])||this.options.rowHeight,18,400));
@@ -1061,17 +1096,22 @@ export class TinyDatagrid {
     for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++){const cell=this.getCell(r,c);this.cells.set(this.key(r,c),{...cell,numberFormat:format||null})}
     this.renderCells();this.emit('format',{range:{r1,c1,r2,c2},format:format||null});
   }
-  createTable(range=this.getUsedRange(),{headerRow=range.r1,style='banded'}={}){
+  createTable(range=this.getUsedRange(),{headerRow=range.r1,style='banded',name}={}){
+    if(this.readOnly)return false;
     const normalized={r1:clamp(Math.min(range.r1,range.r2),0,this.rowCount-1),c1:clamp(Math.min(range.c1,range.c2),0,this.colCount-1),r2:clamp(Math.max(range.r1,range.r2),0,this.rowCount-1),c2:clamp(Math.max(range.c1,range.c2),0,this.colCount-1)};
-    headerRow=clamp(headerRow,normalized.r1,normalized.r2);this._recordHistory();this.table={...normalized,headerRow,style};this.columnFilters.clear();this._updateFilteredRows();this.render();this.emit('table',{...this.table});return this;
+    headerRow=clamp(headerRow,normalized.r1,normalized.r2);
+    const overlaps=this._tables.filter(t=>t.r1<=normalized.r2&&t.r2>=normalized.r1&&t.c1<=normalized.c2&&t.c2>=normalized.c1);
+    if(overlaps.length){const existing=overlaps[0];if(overlaps.length===1&&['r1','r2','c1','c2'].every(k=>existing[k]===normalized[k])){this.activateTable(existing.id);return this}throw new Error('Tables cannot overlap. Select a separate range.');}
+    this._recordHistory();let n=1;while(this._tables.some(t=>t.id===`table${n}`))n++;const id=`table${n}`;
+    this._tables.push({...normalized,headerRow,style,id,name:String(name||`Table ${n}`),filters:new Map()});this._activeTableId=id;this._updateFilteredRows();this.render();this.emit('table',{...this.table});return this;
   }
-  removeTable(){if(!this.table)return false;this._recordHistory();this.table=null;this.columnFilters.clear();this.filteredRows.clear();this.render();this.emit('table',{removed:true});return true}
+  removeTable(id=this.table?.id){if(this.readOnly||!this._tables.some(t=>t.id===id))return false;this._recordHistory();this._tables=this._tables.filter(t=>t.id!==id);for(const p of this.pivotTables)if(p.table===id)delete p.table;if(this._activeTableId===id)this._activeTableId=this._tables[0]?.id||null;this.render();this.emit('table',{removed:true,id});return true}
   _updateFilteredRows(){
-    this.filteredRows.clear();if(!this.table)return;
-    const {r1,r2,headerRow,c1,c2}=this.table;
-    for(let row=headerRow+1;row<=r2;row++){
-      for(const [col,allowed] of this.columnFilters){if(col<c1||col>c2)continue;const value=String(this.getComputedValue(row,col)??'');if(!allowed.has(value)){this.filteredRows.add(row);break}}
-    }
+    this.filteredRows.clear();
+    for(const table of this._tables){for(let row=table.headerRow+1;row<=table.r2;row++){
+      if(!this.isTableRowVisible(row,table.c1)&&!this.hiddenRows.has(row)&&!this._tables.some(other=>other!==table&&row>=other.r1&&row<=other.r2))this.filteredRows.add(row);
+    }}
+    this.feature('pivots')?.invalidateVisibility?.();
   }
   setColumnFilter(col,values){if(!this.table||col<this.table.c1||col>this.table.c2)return false;this._recordHistory();if(values==null)this.columnFilters.delete(col);else this.columnFilters.set(col,new Set([...values].map(String)));this._updateFilteredRows();this.layout();this.emit('filter',{column:col,values:values==null?null:[...this.columnFilters.get(col)],rows:[...this.filteredRows]});return true}
   clearFilters(){if(!this.columnFilters.size)return false;this._recordHistory();this.columnFilters.clear();this._updateFilteredRows();this.layout();this.emit('filter',{clear:true,rows:[]});return true}
@@ -1079,12 +1119,12 @@ export class TinyDatagrid {
     if(!this.table||(this.readOnly&&!this.sqlBinding)||col<this.table.c1||col>this.table.c2)return false;
     const {headerRow,r2,c1,c2}=this.table,rows=[];for(let row=headerRow+1;row<=r2;row++){const values=[];for(let c=c1;c<=c2;c++)values.push({...this.getCell(row,c)});rows.push({values,row,height:this.rowHeights[row],hidden:this.hiddenRows.has(row),sqlId:this.sqlBinding?.sqlRowIds.get(row),value:this.getComputedValue(row,col)})}
     const sign=direction==='desc'?-1:1;rows.sort((a,b)=>{const x=a.value,y=b.value;if(x==null||x==='')return y==null||y===''?a.row-b.row:1;if(y==null||y==='')return -1;if(typeof x==='number'&&typeof y==='number')return (x-y)*sign;return String(x).localeCompare(String(y),undefined,{numeric:true,sensitivity:'base'})*sign||a.row-b.row});
-    this._recordHistory();const sortedSqlRows=this.sqlBinding?new Map([...this.sqlBinding.sqlRowIds].filter(([row])=>row<=headerRow||row>r2)):null;rows.forEach((item,index)=>{const row=headerRow+1+index;for(let c=c1;c<=c2;c++){const cell={...item.values[c-c1]},raw=cell.raw;if(typeof raw==='string'&&raw.startsWith('='))cell.raw=this.shiftFormula(raw,row-item.row,0);if(cell.raw===''&&!cell.style&&!cell.numberFormat&&!cell.className)this.cells.delete(this.key(row,c));else this.cells.set(this.key(row,c),cell)}this.rowHeights[row]=item.height;this.hiddenRows.delete(row);if(item.hidden)this.hiddenRows.add(row);if(sortedSqlRows&&item.sqlId)sortedSqlRows.set(row,item.sqlId)});if(sortedSqlRows)this.sqlBinding.sqlRowIds=sortedSqlRows;
+    this._recordHistory();const sortedSqlRows=this.sqlBinding?new Map([...this.sqlBinding.sqlRowIds].filter(([row])=>row<=headerRow||row>r2)):null;rows.forEach((item,index)=>{const row=headerRow+1+index;for(let c=c1;c<=c2;c++){const cell={...item.values[c-c1]},raw=cell.raw;if(typeof raw==='string'&&raw.startsWith('='))cell.raw=this.shiftFormula(raw,row-item.row,0);if(cell.raw===''&&!cell.style&&!cell.numberFormat&&!cell.className)this.cells.delete(this.key(row,c));else this.cells.set(this.key(row,c),cell)}if(this._tables.length===1){this.rowHeights[row]=item.height;this.hiddenRows.delete(row);if(item.hidden)this.hiddenRows.add(row);}if(sortedSqlRows&&item.sqlId)sortedSqlRows.set(row,item.sqlId)});if(sortedSqlRows)this.sqlBinding.sqlRowIds=sortedSqlRows;
     this.engine.clearCache();this._updateFilteredRows();this.render();this.emit('sort',{column:col,direction});return true;
   }
   toRecords({headerRow=this.table?.headerRow??0,startRow=headerRow+1,endRow=this.table?.r2??this.rowCount-1,startCol=this.table?.c1??0,endCol=this.table?.c2??this.colCount-1,visibleOnly=false}={}){
     const headers=[];for(let c=startCol;c<=endCol;c++)headers.push(String(this.getComputedValue(headerRow,c)||colToName(c)));
-    const out=[];for(let r=startRow;r<=endRow;r++){if(visibleOnly&&(this.hiddenRows.has(r)||this.filteredRows.has(r)))continue;const rec={};let nonEmpty=false;headers.forEach((h,i)=>{const v=this.getComputedValue(r,startCol+i);rec[h]=v;if(v!==''&&v!=null)nonEmpty=true});if(nonEmpty||this.sqlBinding?.sqlRowIds.has(r))out.push(rec)}return out;
+    const out=[];for(let r=startRow;r<=endRow;r++){if(visibleOnly&&!this.isTableRowVisible(r,startCol))continue;const rec={};let nonEmpty=false;headers.forEach((h,i)=>{const v=this.getComputedValue(r,startCol+i);rec[h]=v;if(v!==''&&v!=null)nonEmpty=true});if(nonEmpty||this.sqlBinding?.sqlRowIds.has(r))out.push(rec)}return out;
   }
   pivot(config){const source={visibleOnly:Boolean(this.table),...(config.source||{})};return PivotEngine.pivot(this.toRecords(source),config)}
   setFreezePanes({rows=this.freezePanes.rows,columns=this.freezePanes.columns}={}){this.freezePanes={rows:clamp(Math.trunc(rows)||0,0,this.rowCount-1),columns:clamp(Math.trunc(columns)||0,0,this.colCount-1)};this.render();this.emit('freezepanes',{...this.freezePanes});return this}
@@ -1283,6 +1323,7 @@ export class TinyDatagrid {
   _closeColumnMenu(){const focused=this.contextMenu.contains(document.activeElement);this.contextMenu.hidden=true;this.contextMenu.replaceChildren();if(focused)this.el.focus({preventScroll:true})}
   _handleAxisMenuAction(action){if(this.readOnly&&action!=='copy')return;const axis=this._contextMenuAxis,index=this._contextMenuIndex,row=axis==='row';if(this.sqlBinding&&!row&&['clear','insertBefore','insertAfter','delete'].includes(action))return;if(action==='size'){this._renderAxisMenu(axis,index,true);return}if(action==='back'){this._renderAxisMenu(axis,index);return}if(action==='copy'){const range=row?{r1:index,c1:0,r2:index,c2:this.colCount-1}:{r1:0,c1:index,r2:this.rowCount-1,c2:index};const text=this.toArray(range,false).map(values=>values.join('\t')).join('\n');navigator.clipboard?.writeText(text).catch(()=>{});this._closeColumnMenu();return}this._closeColumnMenu();if(action==='clear')row?this.clearRow(index):this.clearColumn(index);else if(action==='insertBefore')row?this.insertRow(index):this.insertColumn(index);else if(action==='insertAfter')row?this.insertRow(index+1):this.insertColumn(index+1);else if(action==='delete')row?this.deleteRow(index):this.deleteColumn(index);else if(action==='autoFit')row?this.autoFitRow(index):this.autoFitColumn(index);else if(action==='hide')row?this.hideRow(index):this.hideColumn(index);else if(action==='showAll')row?this.showAllRows():this.showAllColumns()}
   _openFilterMenu(col,trigger){
+    if(trigger?.dataset?.tableId)this.activateTable(trigger.dataset.tableId);
     if(!this.table||col<this.table.c1||col>this.table.c2)return;
     this._filterColumn=col;this._filterOptions=new Map();for(let row=this.table.headerRow+1;row<=this.table.r2;row++){const value=String(this.getComputedValue(row,col)??'');this._filterOptions.set(value,(this._filterOptions.get(value)||0)+1)}
     const active=this.columnFilters.get(col),menu=this.filterMenu;menu.replaceChildren();
@@ -1338,12 +1379,26 @@ export class TinyDatagrid {
     this.colHeaders.innerHTML='';this.rowHeaders.innerHTML='';
     const cols=this.virtualization?this._visibleRange(this.colOffsets,this.colCount,this.scroll.scrollLeft,this.scroll.clientWidth,this.options.columnWidth*10):{start:0,end:this.colCount};
     const rows=this.virtualization?this._visibleRange(this.rowOffsets,this.rowCount,this._scrollY(),this.scroll.clientHeight,this.options.rowHeight*20):{start:0,end:this.rowCount};
-    for(const c of this._renderIndices(cols,'columns')){if(this.virtualization&&!this.displayColWidths[c])continue;const h=document.createElement('div');h.className='tg-colhead';h.textContent=colToName(c);h.style.left=this.colOffsets[c]+'px';h.style.width=this.displayColWidths[c]+'px';h.dataset.col=c;h.setAttribute('role','columnheader');h.setAttribute('aria-colindex',String(c+1));if(this.hiddenColumns.has(c))h.classList.add('tg-hidden-column');const rz=document.createElement('span');rz.className='tg-resize-x';h.append(rz);this.colHeaders.append(h)}
+    for(const c of this._renderIndices(cols,'columns')){if(this.virtualization&&!this.displayColWidths[c])continue;const h=document.createElement('div');h.className='tg-colhead';const label=document.createElement('span');label.className='tg-colhead-label';label.textContent=colToName(c);h.append(label);h.style.left=this.colOffsets[c]+'px';h.style.width=this.displayColWidths[c]+'px';h.dataset.col=c;h.setAttribute('role','columnheader');h.setAttribute('aria-colindex',String(c+1));if(this.hiddenColumns.has(c))h.classList.add('tg-hidden-column');const rz=document.createElement('span');rz.className='tg-resize-x';h.append(rz);this.colHeaders.append(h)}
     for(const r of this._renderIndices(rows,'rows')){if(this.virtualization&&!this.displayRowHeights[r])continue;const h=document.createElement('div');h.className='tg-rowhead';h.textContent=String(r+1);h.style.top=this.rowOffsets[r]+'px';h.style.height=this.displayRowHeights[r]+'px';h.dataset.row=r;if(this.hiddenRows.has(r)||this.filteredRows.has(r))h.classList.add('tg-hidden-row');const rz=document.createElement('span');rz.className='tg-resize-y';h.append(rz);this.rowHeaders.append(h)}
   }
   syncHeaders(){
     const sx=this.scroll?.scrollLeft||0, sy=this.scroll?this._scrollY():0;
-    this.colHeaders.querySelectorAll('.tg-colhead').forEach(h=>{const c=+h.dataset.col;h.style.left=(this.colOffsets[c]-(c<this._frozenCounts().columns?0:sx))+'px';h.style.zIndex=c<this._frozenCounts().columns?'2':'1'});
+    const frozen=this._frozenCounts();
+    // Promote the table's labels only while its body is passing under the column bar.
+    // Use logical offsets so this also works with compressed virtual scroll heights.
+    this.colHeaders.querySelectorAll('.tg-colhead').forEach(h=>{
+      const c=+h.dataset.col;h.style.left=(this.colOffsets[c]-(c<frozen.columns?0:sx))+'px';h.style.zIndex=c<frozen.columns?'2':'1';
+      const table=!frozen.rows&&this._tables.find(t=>c>=t.c1&&c<=t.c2&&sy>=this.rowOffsets[t.headerRow+1]&&sy<this.rowOffsets[t.r2+1]);const promote=!!table;
+      let text=colToName(c),named=false;
+      if(promote&&c>=table.c1&&c<=table.c2){
+        const value=this.formatValue(this.getComputedValue(table.headerRow,c),this.getCell(table.headerRow,c).numberFormat).replace(/\s+/g,' ').trim();
+        if(value){text+=` – ${value}`;named=true;}
+      }
+      const label=h.querySelector('.tg-colhead-label');if(label&&label.textContent!==text)label.textContent=text;
+      h.classList.toggle('tg-colhead-table',named);
+      if(named){h.title=text;h.setAttribute('aria-label',text)}else{h.removeAttribute('title');h.removeAttribute('aria-label')}
+    });
     this.rowHeaders.querySelectorAll('.tg-rowhead').forEach(h=>{const r=+h.dataset.row;h.style.top=(this.rowOffsets[r]-(r<this._frozenCounts().rows?0:sy))+'px';h.style.zIndex=r<this._frozenCounts().rows?'2':'1'});
   }
   renderCells(){
@@ -1356,14 +1411,31 @@ export class TinyDatagrid {
       const rowElement=document.createElement('div');rowElement.setAttribute('role','row');rowElement.setAttribute('aria-rowindex',String(r+2));frag.append(rowElement);
       for(const c of this._renderIndices(cols,'columns')){
       if(this.virtualization&&(!this.displayRowHeights[r]||!this.displayColWidths[c]))continue;
+      const table=this.tableAt(r,c);if(table&&r>table.headerRow&&!this.isTableRowVisible(r,c))continue;
       const d=document.createElement('div');d.className='tg-cell';d.dataset.row=r;d.dataset.col=c;d.id=`${this._gridId}-cell-${r}-${c}`;d.setAttribute('role','gridcell');d.setAttribute('aria-colindex',String(c+1));d.draggable=false;d.style.left=this.colOffsets[c]+'px';d.style.top=(this.rowOffsets[r]-this._scrollY()+this.scroll.scrollTop)+'px';d.style.width=this.displayColWidths[c]+'px';d.style.height=this.displayRowHeights[r]+'px';if(this.hiddenColumns.has(c))d.classList.add('tg-hidden-column');if(this.hiddenRows.has(r)||this.filteredRows.has(r))d.classList.add('tg-hidden-row');
       const v=this.getComputedValue(r,c);const meta=this.getCell(r,c);
       if(spills.covered.size||spills.spills.size){const calc=this._calculationKey(this.key(r,c)),origin=spills.spills.has(calc)?calc:spills.covered.get(calc),area=origin&&spills.spills.get(origin);if(area){d.classList.add('tg-spilled');if(r===area.row)d.classList.add('tg-spill-t');if(r===area.row+area.rows-1)d.classList.add('tg-spill-b');if(c===area.col)d.classList.add('tg-spill-l');if(c===area.col+area.cols-1)d.classList.add('tg-spill-r')}}
-      if(this.table&&r===this.table.headerRow&&c>=this.table.c1&&c<=this.table.c2){d.classList.add('tg-table-header');const label=document.createElement('span');label.className='tg-table-header-label';label.textContent=this.formatValue(v,meta.numberFormat);const trigger=document.createElement('button');trigger.type='button';trigger.className='tg-filter-trigger';trigger.dataset.filterColumn=c;trigger.tabIndex=-1;trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-label',`${this.t('filter')} ${label.textContent}`);trigger.textContent=this.columnFilters.has(c)?'▾•':'▾';d.append(label,trigger)}else d.textContent=this.formatValue(v,meta.numberFormat);
-      if(v instanceof JSONValue){d.classList.add('tg-json',v.isArray?'tg-json-array':'tg-json-object');d.title=v.toString().slice(0,400)}else if(typeof v==='string'&&v[0]==='#'&&isFormulaError(v)){d.classList.add('tg-error');d.title=v}if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);const conditional=this.feature('conditionalFormatting');if(conditional)Object.assign(d.style,conditional.cellStyle(r,c,v));const invalid=this.feature('validation')?.validate(r,c,this.getRawValue(r,c));if(invalid){d.setAttribute('aria-invalid','true');d.title=invalid;d.classList.add('tg-invalid')}if(this.table&&this.table.style==='banded'&&r>this.table.headerRow&&(r-this.table.headerRow)%2===0)d.classList.add('tg-table-banded');rowElement.append(d);
+      if(meta.pivotOwner)this._markPivotCell(d,meta,r,c);
+      if(table&&r===table.headerRow){d.classList.add('tg-table-header');const label=document.createElement('span');label.className='tg-table-header-label';label.textContent=this.formatValue(v,meta.numberFormat);const trigger=document.createElement('button');trigger.type='button';trigger.className='tg-filter-trigger';trigger.dataset.filterColumn=c;trigger.dataset.tableId=table.id;trigger.tabIndex=-1;trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-label',`${this.t('filter')} ${label.textContent}`);trigger.textContent=table.filters.has(c)?'▾•':'▾';d.append(label,trigger)}else d.textContent=this.formatValue(v,meta.numberFormat);
+      if(v instanceof JSONValue){d.classList.add('tg-json',v.isArray?'tg-json-array':'tg-json-object');d.title=v.toString().slice(0,400)}else if(typeof v==='string'&&v[0]==='#'&&isFormulaError(v)){d.classList.add('tg-error');d.title=v}if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);const conditional=this.feature('conditionalFormatting');if(conditional)Object.assign(d.style,conditional.cellStyle(r,c,v));const invalid=this.feature('validation')?.validate(r,c,this.getRawValue(r,c));if(invalid){d.setAttribute('aria-invalid','true');d.title=invalid;d.classList.add('tg-invalid')}if(this.feature('validation')?.listValues?.(r,c)){d.classList.add('tg-has-list');d.setAttribute('aria-haspopup','listbox')}if(table&&table.style==='banded'&&r>table.headerRow&&(r-table.headerRow)%2===0)d.classList.add('tg-table-banded');rowElement.append(d);
       }
     }
-    this.canvas.append(frag);this._syncFrozenCells();this.updateSelectionOverlay();
+    this.canvas.append(frag);this._syncFrozenCells();this.syncHeaders();this.updateSelectionOverlay();
+  }
+  /** Classes and hint for a cell that belongs to a pivot result: the outline follows the result's edges. */
+  _markPivotCell(d,meta,r,c){
+    const pivot=this.pivotTables.find(p=>p.id===meta.pivotOwner),area=pivot?.output;
+    d.classList.add('tg-pivot');d.dataset.pivot=meta.pivotOwner;
+    if(area){if(r===area.r1)d.classList.add('tg-pivot-t','tg-pivot-head');if(r===area.r2)d.classList.add('tg-pivot-b');if(c===area.c1)d.classList.add('tg-pivot-l');if(c===area.c2)d.classList.add('tg-pivot-r')}
+    const table=pivot?.table&&this._tables.find(t=>t.id===pivot.table),source=table?table.name:pivot?`${toA1(pivot.source.r1,pivot.source.c1)}:${toA1(pivot.source.r2,pivot.source.c2)}`:'';
+    d.title=source?`${this.t('pivotCell')} · ${source}`:this.t('pivotCell');
+  }
+  /** Typing directly under a table extends the table by that row (not while it is filtered or database-bound). */
+  _growTable(row,col,value){
+    if(this.options.tableAutoExpand===false||this.sqlBinding||value===''||value==null)return;
+    const table=this._tables.find(t=>row===t.r2+1&&col>=t.c1&&col<=t.c2);
+    if(!table||table.filters.size||this._tables.some(other=>other!==table&&row>=other.r1&&row<=other.r2&&col>=other.c1&&col<=other.c2))return;
+    table.r2=row;
   }
   formatValue(value,format){
     if(value instanceof JSONValue)return value.toString();
@@ -1419,6 +1491,7 @@ export class TinyDatagrid {
   select(row,col,extend=false){
     row=clamp(row,0,this.rowCount-1);col=clamp(col,0,this.colCount-1);
     if(extend)this.selection={r1:this.anchor.row,c1:this.anchor.col,r2:row,c2:col};else{this.anchor={row,col};this.selection={r1:row,c1:col,r2:row,c2:col}}
+    const table=this.tableAt(row,col);if(table&&!this.sqlBinding)this._activeTableId=table.id;
     this.scrollToCell(row,col);this.updateSelectionOverlay();this.emit('select',{...this.selection});
   }
   /** Move by one visible cell; return false at the sheet boundary. */
@@ -1440,7 +1513,7 @@ export class TinyDatagrid {
     if(col>=frozen.columns){if(left<this.scroll.scrollLeft+this.colOffsets[frozen.columns])this.scroll.scrollLeft=left-this.colOffsets[frozen.columns];else if(right>this.scroll.scrollLeft+this.scroll.clientWidth)this.scroll.scrollLeft=right-this.scroll.clientWidth;}
   }
   edit(row=this.selection.r2,col=this.selection.c2,initial=null){
-    if(this.isCellReadOnly(row,col))return false;
+    if(this.isCellReadOnly(row,col)){const pivot=initial==null&&this.getCell(row,col).pivotOwner;if(pivot)this.emit('editblocked',{row,col,pivot});return false}
     const left=this.options.headerWidth+this._viewOffset(col,'columns'),top=this.options.headerHeight+this._viewOffset(row,'rows');
     this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.setAttribute('aria-label',`${toA1(row,col)} · ${this.t('editor')}`);this.editor.value=initial??rawText(this.getRawValue(row,col));this.editor.style.display='block';this.editor.style.visibility='visible';this.editor.style.height=Math.min(240,Math.max(this.displayRowHeights[row],this.editor.scrollHeight))+'px';this.editor.focus({preventScroll:true});if(initial==null)this.editor.select();else this.editor.setSelectionRange(this.editor.value.length,this.editor.value.length);this._editing={row,col};
   }
@@ -1480,7 +1553,8 @@ export class TinyDatagrid {
     this._listen(this.canvas,'pointerup',e=>{this._touchEnd(e,true);if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
     this._listen(this.canvas,'pointercancel',e=>{this._touchEnd(e,false);if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
     this._listen(this.canvas,'touchmove',e=>{if(this._touch?.range&&e.cancelable)e.preventDefault()},{passive:false});
-    this._listen(this.canvas,'dblclick',e=>{if(e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(cell)this.edit(+cell.dataset.row,+cell.dataset.col)});
+    // A mouse press captures the pointer on the canvas, so the browser reports the canvas (not the cell) as the target.
+    this._listen(this.canvas,'dblclick',e=>{if(e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell'),at=cell?{row:+cell.dataset.row,col:+cell.dataset.col}:this.getCellAtClient(e.clientX,e.clientY);this.edit(at.row,at.col)});
     this._listen(this.fillHandle,'dblclick',e=>{e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
     this._listen(this.fillHandle,'keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
     this._listen(this.fillHandle,'pointerdown',e=>{if(this.readOnly)return;e.preventDefault();e.stopPropagation();this._fillState={source:{...this.selection},target:{...this.selection}};this.fillHandle.setPointerCapture(e.pointerId)});
@@ -1513,7 +1587,7 @@ export class TinyDatagrid {
     this._listen(this.el,'keydown',async e=>{if(e.defaultPrevented||e.isComposing)return;if(e.key==='Escape'&&!this.autofillMenu.hidden){e.preventDefault();this._closeAutofillMenu(true);return}if(e.key==='Escape'&&!this.filterMenu.hidden){e.preventDefault();this._closeFilterMenu();return}if(e.key==='Escape'&&!this.contextMenu.hidden){this._closeColumnMenu();return}if(this.contextMenu.contains(e.target)||this.filterMenu.contains(e.target)||this.autofillMenu.contains(e.target)||this._editing||e.target!==this.el)return;const a=this.anchor;
       if(e.key===' '&&(e.shiftKey||e.ctrlKey||e.metaKey)){e.preventDefault();if(e.shiftKey)this._setRowSelection(a.row);else this._setColumnSelection(a.col);return}
       if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();const row=this.selection.c1===0&&this.selection.c2===this.colCount-1,rect=this.selectionEl.getBoundingClientRect();this._contextMenuPoint={x:rect.left,y:rect.top};this._renderAxisMenu(row?'row':'column',row?a.row:a.col);return}
-      if(e.altKey&&e.key==='ArrowDown'){e.preventDefault();const trigger=this.canvas.querySelector(`[data-filter-column="${a.col}"]`);if(trigger)this._openFilterMenu(a.col,trigger);return}
+      if(e.altKey&&e.key==='ArrowDown'){e.preventDefault();const trigger=this.canvas.querySelector(`[data-filter-column="${a.col}"][data-table-id="${this.table?.id}"]`);if(trigger)this._openFilterMenu(a.col,trigger);return}
       if(e.key==='Home'||e.key==='End'){e.preventDefault();const end=e.key==='End',r=(e.ctrlKey||e.metaKey)?(end?this.getUsedRange().r2:0):a.row;this.select(r,end?this.getUsedRange().c2:0,e.shiftKey);return}
       if(this.readOnly&&(['Enter','F2','Backspace','Delete'].includes(e.key)||((e.metaKey||e.ctrlKey)&&['z','y','v'].includes(e.key.toLowerCase()))||(e.key.length===1&&!e.metaKey&&!e.ctrlKey&&!e.altKey))){e.preventDefault();return}
       if(e.key==='Enter'||e.key==='F2'){e.preventDefault();this.edit();return}
@@ -1532,7 +1606,7 @@ export class TinyDatagrid {
 // SQL record deletion, autofit) become one undo step; rendering/events can run
 // during the operation, but the final history event fires only after completion.
 for(const name of [
-  'setValidationRules','setCell','setVariable','setSheetName','clearSelection','styleSelection','formatSelection',
+  'saveVisualization','removeVisualization','setValidationRules','setCell','setVariable','setSheetName','clearSelection','styleSelection','formatSelection',
   'setRowHeight','setColumnWidth','hideRow','showAllRows','insertRow','deleteRow','clearRow','autoFitRow',
   'hideColumn','showAllColumns','insertColumn','deleteColumn','clearColumn','autoFitColumn',
   'load','loadRecords','loadResultSet','appendResultPage','insertRecord','deleteRecord',

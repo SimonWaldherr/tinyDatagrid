@@ -1,5 +1,5 @@
 import { toA1, parseA1, colToName, nameToCol } from './tinygrid.js';
-import { parseNumericValue } from './numeric-values.js';
+import { inferDataValue } from './data-types.js';
 
 // Point-and-click rules for the conditionalFormatting() and dataValidation() plugins. The helpers change the
 // grid's rule lists as one undoable step; installRuleTools() binds them to the demo's buttons and dialogs.
@@ -27,6 +27,7 @@ export const PRESETS = [
 ];
 const VALIDATION_TYPES = { integer: 'vlInteger', number: 'vlNumber', list: 'vlList', textLength: 'vlTextLength', json: 'vlJson' };
 
+const shorten = (text, max) => text.length > max ? `${text.slice(0, max - 1)}…` : text;
 const fill = (text, values) => Object.entries(values).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, value), text);
 const overlaps = (a, b) => a.r1 <= b.r2 && a.r2 >= b.r1 && a.c1 <= b.c2 && a.c2 >= b.c1;
 
@@ -65,13 +66,11 @@ export function subtractRange(range, hole) {
   return pieces;
 }
 
-/** Typed value of a text field: numbers (1,5 counts as 1.5) and TRUE/FALSE are converted, other text stays. */
-export function parseRuleValue(text) {
+/** Typed value of a text field, read like input in a cell: numbers and TRUE/FALSE are converted, other text stays. */
+export function parseRuleValue(text, { locale } = {}) {
   const trimmed = String(text ?? '').trim();
-  const parsed = parseNumericValue(/^[+-]?\d+,\d+$/.test(trimmed) ? trimmed.replace(',', '.') : trimmed);
-  if (parsed.numeric && !parsed.lossy && typeof parsed.value === 'number') return parsed.value;
-  if (/^(true|false)$/i.test(trimmed)) return trimmed.toLowerCase() === 'true';
-  return trimmed;
+  const { type, value } = inferDataValue(trimmed, { locale, dateParsing: false });
+  return (type === 'integer' || type === 'number') && typeof value === 'number' || type === 'boolean' ? value : trimmed;
 }
 
 /** Allowed values for a list from text: one per line, or separated by commas or semicolons. */
@@ -83,6 +82,7 @@ export function parseListValues(text) {
 
 /** A short description of a conditional formatting rule, for example: is greater than 100. */
 export function conditionText(rule, t) {
+  if (rule.type === 'colorScale') return `${t('cfColorScale')} ${rule.min} – ${rule.max}`;
   const condition = CONDITIONS.find(item => item.id === rule.operator);
   if (!condition) return String(rule.operator);
   const shown = value => typeof value === 'string' ? `"${value}"` : String(value ?? '');
@@ -94,7 +94,7 @@ export function conditionText(rule, t) {
 
 /** A short description of a validation rule, for example: Whole number from 1 to 10. */
 export function validationText(rule, t) {
-  if (rule.type === 'list') return fill(t('vlListSummary'), { values: (rule.values ?? []).join(', ') });
+  if (rule.type === 'list') return fill(t('vlListSummary'), { values: shorten((rule.values ?? []).join(', '), 90) });
   if (rule.type === 'json') return rule.kind ? t(rule.kind === 'object' ? 'vlJsonObject' : 'vlJsonArray') : t('vlJson');
   const bounds = rule.min != null && rule.max != null ? fill(t('vlBetween'), { min: rule.min, max: rule.max })
     : rule.min != null ? fill(t('vlAtLeast'), { min: rule.min }) : rule.max != null ? fill(t('vlAtMost'), { max: rule.max }) : '';
@@ -130,10 +130,11 @@ export function installRuleTools({ grid, $, t, notify, selection, showDialog }) 
     return null;
   };
   const targetRange = input => parseRangeText(input.value, { columns: grid.colCount }) ?? invalid(input, t('rlRangeInvalid'));
+  const locale = grid.options.dataLocale || 'en-US';
   const number = (input, required) => {
     const raw = input.value.trim();
     if (!raw) return required ? invalid(input, t('rlNeedNumber')) : undefined;
-    const value = parseRuleValue(raw);
+    const value = parseRuleValue(raw, { locale });
     return typeof value === 'number' ? value : invalid(input, t('rlNeedNumber'));
   };
   function renderList(host, rules, { sample, describe, remove }) {
@@ -141,7 +142,11 @@ export function installRuleTools({ grid, $, t, notify, selection, showDialog }) 
     if (!rules.length) { const empty = document.createElement('li'); empty.className = 'rule-empty'; empty.textContent = t('rlNone'); host.append(empty); return; }
     rules.forEach((rule, index) => {
       const item = document.createElement('li'), label = document.createElement('span'), where = document.createElement('b'), button = document.createElement('button');
-      if (sample) { const chip = document.createElement('span'); chip.className = 'rule-sample'; chip.textContent = 'Abc'; Object.assign(chip.style, rule.style); item.append(chip); }
+      if (sample) {
+        const chip = document.createElement('span'); chip.className = 'rule-sample'; item.append(chip);
+        if (rule.type === 'colorScale') { chip.textContent = '\u00a0'; chip.style.background = `linear-gradient(90deg, ${rule.colors.join(', ')})`; }
+        else { chip.textContent = 'Abc'; Object.assign(chip.style, rule.style); }
+      }
       where.textContent = describeRange(rule.range); label.className = 'rule-text'; label.append(where, ` ${describe(rule)}`);
       button.type = 'button'; button.className = 'icon-button'; button.textContent = '×'; button.title = `${t('rlRemove')}: ${describeRange(rule.range)}`; button.setAttribute('aria-label', button.title);
       button.onclick = () => { remove(index); renderAll(); };
@@ -218,7 +223,7 @@ export function installRuleTools({ grid, $, t, notify, selection, showDialog }) 
         if (rule.max < rule.value) [rule.value, rule.max] = [rule.max, rule.value];
       } else {
         if (!$('#cfValue').value.trim()) { invalid($('#cfValue'), t('rlNeedValue')); return; }
-        rule.value = condition.id === 'contains' ? $('#cfValue').value : parseRuleValue($('#cfValue').value);
+        rule.value = condition.id === 'contains' ? $('#cfValue').value : parseRuleValue($('#cfValue').value, { locale });
       }
     }
     try { addConditionalFormat(grid, rule); } catch { notify(t('failed')); return; }
@@ -261,7 +266,7 @@ export function installRuleTools({ grid, $, t, notify, selection, showDialog }) 
       if (values.length > MAX_LIST_VALUES) { invalid($('#vlValues'), text('vlTooMany', { n: MAX_LIST_VALUES })); return; }
       rule.values = values;
     } else if ($('#vlKind').value) rule.kind = $('#vlKind').value;
-    rule.message = $('#vlMessage').value.trim() || text('vlDefaultMessage', { rule: validationText(rule, t) });
+    rule.message = $('#vlMessage').value.trim() || (type === 'list' ? text('vlListMessage', { values: shorten(rule.values.join(', '), 120) }) : text('vlDefaultMessage', { rule: validationText(rule, t) }));
     try { setValidation(grid, rule); } catch { notify(t('failed')); return; }
     $('#validationDialog').close();
     notify(text('vlAdded', { range: describeRange(range) }));

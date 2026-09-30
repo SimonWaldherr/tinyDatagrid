@@ -75,6 +75,16 @@ export class TinyDatagrid {
   getDependents(row?: number, col?: number): Array<{sheetId:string|null;sheet:string;row:number;col:number;address:string;formula:string}>;
   /** Move to the next visible cell; false at the sheet boundary. */
   moveSelection(direction: 'up' | 'down' | 'left' | 'right', extend?: boolean): boolean;
+  /** Current active table; choose one explicitly or by selecting one of its cells. */
+  listTables(): Array<{id:string;name:string;r1:number;c1:number;r2:number;c2:number;headerRow:number;style:string;filters:Array<{column:number;values:string[]}>}>;
+  tableAt(row:number,col:number): (Omit<ReturnType<TinyDatagrid['listTables']>[number], 'filters'> & {filters:Map<number,Set<string>>}) | null;
+  createTable(range?:CellRange,options?:{headerRow?:number;style?:string;name?:string}):this|false;
+  activateTable(id:string): this;
+  removeTable(id?:string): boolean;
+  listObjects(): Array<{id:string;type:'table'|'pivot'|'chart'|'heatmap';name:string;range:CellRange;chartType?:string}>;
+  saveVisualization(options:{name?:string;range:CellRange;chartType?:string}):string|false;
+  removeVisualization(id:string):this|false;
+  isTableRowVisible(row:number,col:number):boolean;
   /** Clear cached results, including random values, and refresh formulas and filters. */
   recalculate(options?: { full?: boolean }): this;
   setExternalVariable(name: string, value: unknown, options?: { recalculate?: boolean }): this;

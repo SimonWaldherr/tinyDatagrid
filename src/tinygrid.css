@@ -74,6 +74,20 @@ textarea.tg-editor{resize:both;white-space:pre;min-height:28px;max-height:240px;
 .tg-cell.tg-spill-b{--sp-b:inset 0 -1px 0 var(--tg-spill-line)}
 .tg-cell.tg-spill-l{--sp-l:inset 1px 0 0 var(--tg-spill-line)}
 .tg-cell.tg-spill-r{--sp-r:inset -1px 0 0 var(--tg-spill-line)}
+.tg-root{--tg-pivot-line:color-mix(in srgb,var(--tg-accent) 72%,transparent);--tg-pivot:color-mix(in srgb,var(--tg-accent) 7%,transparent);--tg-pivot-head:color-mix(in srgb,var(--tg-accent) 17%,transparent)}
+.tg-cell.tg-pivot{background-image:linear-gradient(var(--tg-pivot),var(--tg-pivot));box-shadow:var(--pv-t,0 0 #0000),var(--pv-b,0 0 #0000),var(--pv-l,0 0 #0000),var(--pv-r,0 0 #0000)}
+.tg-cell.tg-pivot-head{background-image:linear-gradient(var(--tg-pivot-head),var(--tg-pivot-head));font-weight:600}
+.tg-cell.tg-pivot-t{--pv-t:inset 0 2px 0 var(--tg-pivot-line)}
+.tg-cell.tg-pivot-b{--pv-b:inset 0 -2px 0 var(--tg-pivot-line)}
+.tg-cell.tg-pivot-l{--pv-l:inset 2px 0 0 var(--tg-pivot-line)}
+.tg-cell.tg-pivot-r{--pv-r:inset -2px 0 0 var(--tg-pivot-line)}
+.tg-cell.tg-has-list{padding-right:26px}
+.tg-cell.tg-has-list[aria-selected="true"]::after{content:"";position:absolute;right:9px;top:50%;margin-top:-2px;border:5px solid transparent;border-top-color:currentColor;border-bottom-width:0;opacity:.65;pointer-events:none}
+.tg-readonly .tg-cell.tg-has-list::after{display:none}
+.tg-list-menu{width:auto;min-width:120px;max-width:min(360px,calc(100% - 12px));max-height:min(320px,calc(100% - 12px));outline:none}
+.tg-list-menu .tg-menu-item{position:relative;padding-left:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-list-menu .tg-menu-item.tg-menu-active{background:var(--tg-hover);color:var(--tg-text)}
+.tg-list-menu .tg-menu-item[aria-selected="true"]::before{content:"✓";position:absolute;left:9px}
 
 
 .tg-cell-menu{max-height:calc(100% - 12px);overflow-y:auto}.tg-worksheet-bar{display:flex;align-items:center;gap:6px;min-width:0}.tg-worksheet-list{display:flex;gap:4px;overflow-x:auto;scrollbar-width:thin;min-width:0}.tg-worksheet-bar button{font:inherit;padding:8px 12px;border:1px solid var(--tg-border,#bccbc5);border-radius:5px;background:var(--tg-panel,var(--panel,#fff));color:var(--tg-text,var(--text,#243532));cursor:pointer;white-space:nowrap}.tg-worksheet-tab[aria-selected=true]{border-bottom:3px solid var(--tg-accent,var(--accent,#167761));font-weight:650}.tg-worksheet-dialog{max-width:min(420px,90vw);border:1px solid var(--tg-border,#bccbc5);border-radius:8px;padding:20px;background:var(--tg-panel,var(--panel,#fff));color:var(--tg-text,var(--text,#243532))}.tg-worksheet-dialog form{display:flex;gap:10px;flex-wrap:wrap}.tg-worksheet-dialog label{display:grid;gap:8px;width:100%}.tg-worksheet-dialog input{font:inherit;padding:8px}.tg-worksheet-dialog::backdrop{background:#0006}
@@ -104,3 +118,7 @@ textarea.tg-editor{resize:both;white-space:pre;min-height:28px;max-height:240px;
 .tg-worksheet-dialog button.danger{background:var(--tg-error,#b42318);border-color:var(--tg-error,#b42318);color:#fff}
 @media(pointer:coarse){.tg-sheet-color{width:30px;height:30px}.tg-sheet-colors{gap:10px}}
 @media(forced-colors:active){.tg-worksheet-tab.has-color::after{background:Highlight}.tg-sheet-color[aria-checked=true]{outline-color:Highlight}}
+
+/* Keep promoted table labels readable without covering the column resize handle. */
+.tg-colhead-label{display:block;min-width:0;max-width:100%;padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box}
+.tg-colhead-table{color:var(--tg-text);font-weight:600}

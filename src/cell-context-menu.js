@@ -20,7 +20,7 @@ export function cellContextMenu({translate,items=[]}={}){return {name:'cellConte
   function open(x,y){
     if(grid.commitEdit()===false)return;
     grid._closeColumnMenu();grid._closeFilterMenu();menu.replaceChildren();menu.setAttribute('aria-label',t('menu'));
-    for(const item of actions){const button=document.createElement('button');button.type='button';button.className='tg-menu-item';button.setAttribute('role','menuitem');button.textContent=item.label||t(item.id);button.disabled=item.enabled?!item.enabled(grid):false;
+    for(const item of actions){if(item.visible&&!item.visible(grid))continue;const button=document.createElement('button');button.type='button';button.className='tg-menu-item';button.setAttribute('role','menuitem');button.textContent=(typeof item.label==='function'?item.label(grid):item.label)||t(item.id);button.disabled=item.enabled?!item.enabled(grid):false;
       button.onclick=async()=>{if(button.disabled||(item.enabled&&!item.enabled(grid)))return;close();try{await item.action(grid)}catch(error){grid.emit('contextmenuerror',{error})}};menu.append(button)}
     menu.hidden=false;const root=grid.el.getBoundingClientRect();menu.style.left=Math.max(0,Math.min(x-root.left,grid.el.clientWidth-menu.offsetWidth))+'px';menu.style.top=Math.max(0,Math.min(y-root.top,grid.el.clientHeight-menu.offsetHeight))+'px';menu.querySelector('button:not(:disabled)')?.focus();
   }

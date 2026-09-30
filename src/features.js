@@ -1,3 +1,4 @@
+import { heatColor } from './heatmap.js';
 // Optional UI/data features. Import only the factories your host needs.
 import { parseJSONText, isJSONContainer, JSONValue, jsonType } from './json-values.js';
 const styleKeys=new Set(['backgroundColor','color','fontWeight','fontStyle','textDecoration','textAlign']);
@@ -28,9 +29,9 @@ function matches(value,rule){
   return false;
 }
 export function conditionalFormatting(){return {name:'conditionalFormatting',setup(grid){
-  const checkRules=rules=>{ranges(rules);for(const rule of rules){if(!operators.has(rule.operator))throw new TypeError('Invalid conditional operator');if(!rule.style||typeof rule.style!=='object'||Object.keys(rule.style).some(k=>!styleKeys.has(k)))throw new TypeError('Invalid conditional style')}};
+  const checkRules=rules=>{ranges(rules);for(const rule of rules){if(rule.type==='colorScale'){heatColor(0,rule);continue;}if(!operators.has(rule.operator))throw new TypeError('Invalid conditional operator');if(!rule.style||typeof rule.style!=='object'||Object.keys(rule.style).some(k=>!styleKeys.has(k)))throw new TypeError('Invalid conditional style')}};
   checkRules(grid.conditionalFormats);
-  return {checkRules,cellStyle(row,col,value){const result={};for(const rule of grid.conditionalFormats){if(inRange(row,col,rule.range)&&matches(value,rule)){Object.assign(result,rule.style);if(rule.stopIfTrue)break}}return result}};
+  return {checkRules,cellStyle(row,col,value){const result={};for(const rule of grid.conditionalFormats){if(inRange(row,col,rule.range)&&rule.type==='colorScale'){const color=heatColor(value,rule);if(color){result.backgroundColor=color;const n=parseInt(color.slice(1),16);result.color=((n>>16)*299+((n>>8)&255)*587+(n&255)*114)>145000?'#111111':'#ffffff';if(rule.stopIfTrue)break;}continue;}if(inRange(row,col,rule.range)&&matches(value,rule)){Object.assign(result,rule.style);if(rule.stopIfTrue)break}}return result}};
 }}}
 export function dataValidation(){return {name:'validation',setup(grid){
   const checkRules=rules=>{
@@ -43,7 +44,7 @@ export function dataValidation(){return {name:'validation',setup(grid){
     }
   };
   checkRules(grid.validationRules);
-  return {checkRules,validate(row,col,value){
+  return {checkRules,listValues(row,col){const rule=grid.validationRules.find(item=>item.type==='list'&&inRange(row,col,item.range));return rule?rule.values:null},validate(row,col,value){
     for(const rule of grid.validationRules){
       if(!inRange(row,col,rule.range))continue;
       const empty=value===''||value==null;if(empty&&rule.allowEmpty!==false)continue;

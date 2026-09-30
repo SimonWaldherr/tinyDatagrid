@@ -44,7 +44,17 @@ export function worksheets(){return {name:'worksheets',setup(grid){
       get variables(){return sheets.get(id).state?.variables||sheets.get(id).readVariables},
       get cells(){return sheets.get(id).state?.cells||sheets.get(id).readCells},
       get sqlBinding(){return sheets.get(id).state?.sqlBinding||null},
+      get _tables(){const item=sheets.get(id),state=item.state;return state?.tables||item.sheet.tables||(state?.table?[state.table]:item.sheet.table?[item.sheet.table]:[])},
       feature:name=>name==='worksheets'?api:name==='dynamicArrays'?grid.feature('dynamicArrays'):name==='pivots'&&grid.feature('pivots')?(pivotController??=grid.feature('pivots').forGrid(view)):undefined,
+      isTableRowVisible(row,col){
+        const item=sheets.get(id),state=item.state,tables=state?.tables||item.sheet.tables||(state?.table?[state.table]:item.sheet.table?[item.sheet.table]:[]);
+        const hidden=state?.hiddenRows||new Set(item.sheet.dimensions?.hiddenRows||[]);if(hidden.has(row))return false;
+        const table=tables.find(t=>row>=t.r1&&row<=t.r2&&col>=t.c1&&col<=t.c2);if(!table||row<=table.headerRow)return true;
+        const stored=table.filters||state?.columnFilters||item.sheet.filters||[];
+        const filters=stored instanceof Map?stored:new Map(stored.map(f=>[f.column,new Set((f.values||[]).map(String))]));
+        return [...filters].every(([c,values])=>values.has(String(view.getComputedValue(row,c)??'')));
+      },
+      isAnalysisRowVisible(row){return view.isTableRowVisible(row,0)},
       _calculationKey:key=>JSON.stringify([id,key]),
       key:TinyDatagrid.prototype.key,getCell:TinyDatagrid.prototype.getCell,
       getRawValue:TinyDatagrid.prototype.getRawValue,getComputedValue:TinyDatagrid.prototype.getComputedValue,getVariable:TinyDatagrid.prototype.getVariable,_spillValue:TinyDatagrid.prototype._spillValue,getSpill:TinyDatagrid.prototype.getSpill
@@ -68,6 +78,15 @@ export function worksheets(){return {name:'worksheets',setup(grid){
       }
       grid.engine.clearCache();return true;
     },
+    listObjects(){return [...sheets].flatMap(([id,item])=>{
+      const source=item.state||item.sheet;
+      const objects=id===active?grid.listObjects():[
+        ...(source.tables||(source.table?[source.table]:[])).map(t=>({id:t.id||'table1',name:t.name||'Table 1',type:'table',range:{r1:t.r1,c1:t.c1,r2:t.r2,c2:t.c2}})),
+        ...(source.pivotTables||[]).map(p=>({id:p.id,name:p.id,type:'pivot',range:{...p.output}})),
+        ...(source.visualizations||[]).map(v=>({...structuredClone(v),type:'chart'})),
+        ...(source.conditionalFormats||[]).flatMap((rule,index)=>rule.type==='colorScale'?[{id:`heatmap${index}`,type:'heatmap',name:`Heatmap ${index+1}`,range:{...rule.range},ruleIndex:index}]:[])
+      ];return objects.map(object=>({...object,sheetId:id,sheetName:id===active?grid.sheetName:item.sheet.name}));
+    })},
     get activeId(){return active},
     calculationKey:key=>JSON.stringify([active,key]),
     resolve,

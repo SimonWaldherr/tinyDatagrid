@@ -1,5 +1,6 @@
 // Short UI documentation; detailed domain rules remain in docs/functions.md.
 const rows=`
+MANDELBROT|real; imaginary; maxIterations=200|Optional: Fluchtiteration (maximal 10000), oder das Limit bei nicht entkommenen Punkten.|Optional: escape iteration (up to 10000), or the limit for points that did not escape.
 SUM|values…|Addiert Zahlen und Bereiche.|Adds numbers and ranges.
 AVERAGE/AVG|values…|Mittelwert der nichtleeren Werte.|Mean of nonempty values.
 MIN/MAX|values…|Kleinster bzw. größter Zahlenwert.|Smallest or largest numeric value.

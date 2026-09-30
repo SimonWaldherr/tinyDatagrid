@@ -1,3 +1,4 @@
+import { includesAnalysisRow } from './analysis.js';
 import { toA1 } from './tinygrid.js';
 
 // Charts from the current selection: column, stacked column, bar, line, area and pie.
@@ -36,7 +37,8 @@ function roundedRow(x, y, width, height, radius, right) {
 const clip = (text, length) => text.length > length ? `${text.slice(0, length - 1)}…` : text;
 const textWidth = (text, size = 12) => text.length * size * 0.56 + 2;
 
-export function installCharts({ grid, $, t, notify, selection, getLanguage = () => grid.locale || 'en' }) {
+export function installCharts({ grid, $, t, notify, selection, getLanguage = () => grid.locale || 'en', getAnalysis = () => ({scope:'visible'}), onSelect }) {
+  let explicitRange=null;
   let model = null, type = 'column', tableView = false, active = -1, colors = null, format = null, axisFormat = null;
   const probe = document.createElement('span');
   probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none';
@@ -45,12 +47,13 @@ export function installCharts({ grid, $, t, notify, selection, getLanguage = () 
   const token = name => { probe.style.color = `var(${name},${fallbacks[name] || 'transparent'})`; return getComputedStyle(probe).color; };
 
   // ---- reading the selection ------------------------------------------------
-  const visibleRows = (r1, r2) => { const rows = []; for (let r = r1; r <= r2; r++) if (!grid.hiddenRows.has(r) && !grid.filteredRows.has(r)) rows.push(r); return rows; };
+  const visibleRows = (r1, r2, col) => { const rows = []; for (let r = r1; r <= r2; r++) if (r===r1 || (getAnalysis().scope==='visible'&&grid.isTableRowVisible?grid.isTableRowVisible(r,col):includesAnalysisRow(grid,r,getAnalysis()))) rows.push(r); return rows; };
   const visibleCols = (c1, c2) => { const cols = []; for (let c = c1; c <= c2; c++) if (!grid.hiddenColumns.has(c)) cols.push(c); return cols; };
   const filled = (r, c) => { const v = grid.getComputedValue(r, c); return v !== '' && v != null; };
   function region() {
     let { r1, r2, c1, c2 } = selection();
     if (r1 !== r2 || c1 !== c2) return { r1, r2, c1, c2 };
+    const table=grid.tableAt?.(r1,c1);if(table)return {r1:table.headerRow,c1:table.c1,r2:table.r2,c2:table.c2};
     if (!filled(r1, c1)) return { r1, r2, c1, c2 };
     const box = { r1, r2, c1, c2 };
     const any = (rows, cols) => rows.some(r => cols.some(c => r >= 0 && c >= 0 && r < grid.rowCount && c < grid.colCount && filled(r, c)));
@@ -76,12 +79,15 @@ export function installCharts({ grid, $, t, notify, selection, getLanguage = () 
     return { header, labels: columns > 1 && (firstIsText || sequence) };
   }
   function build(overrides = {}) {
-    const box = region();
-    const rows = visibleRows(box.r1, box.r2), cols = visibleCols(box.c1, box.c2);
-    const matrix = rows.map(r => cols.map(c => grid.getComputedValue(r, c)));
+    const table=grid.table;
+    const box = explicitRange|| (getAnalysis().scope==='selection'&&table?{r1:table.headerRow,c1:table.c1,r2:table.r2,c2:table.c2}:region());
+    if((box.r2-box.r1+1)*(box.c2-box.c1+1)>500000){notify(t('analysisTooLarge'));return null;}
+    let rows = visibleRows(box.r1, box.r2,box.c1);const cols = visibleCols(box.c1, box.c2);
+    let matrix = rows.map(r => cols.map(c => grid.getComputedValue(r, c)));
     if (!matrix.length || !cols.length) return null;
     const guess = detect(matrix);
     const header = overrides.header ?? guess.header, labels = overrides.labels ?? guess.labels;
+    if(!header&&!(getAnalysis().scope==='visible'&&grid.isTableRowVisible?grid.isTableRowVisible(rows[0],box.c1):includesAnalysisRow(grid,rows[0],getAnalysis()))){rows=rows.slice(1);matrix=matrix.slice(1);}
     const body = matrix.slice(header ? 1 : 0), truncated = body.length > MAX_ROWS, data = body.slice(0, MAX_ROWS);
     const seriesColumns = cols.map((_, index) => index).filter(index => !(labels && index === 0) && data.some(row => numberOf(row[index]) != null));
     if (!data.length || !seriesColumns.length) return { box, empty: true, guess, header, labels };
@@ -90,7 +96,7 @@ export function installCharts({ grid, $, t, notify, selection, getLanguage = () 
       name: header && matrix[0][index] !== '' && matrix[0][index] != null ? String(matrix[0][index]) : `${t('chartSeries')} ${order + 1}`,
       values: data.map(row => numberOf(row[index]))
     }));
-    return { box, guess, header, labels, categories, series, truncated, extraSeries: seriesColumns.length - series.length, title: grid.sheetName };
+    return { box, sourceRows:rows.slice(header?1:0, (header?1:0)+MAX_ROWS), sourceColumn:cols[0], guess, header, labels, categories, series, truncated, extraSeries: seriesColumns.length - series.length, title: grid.sheetName };
   }
   const categoryLabel = value => value instanceof Date ? value.toLocaleDateString(getLanguage()) : String(value ?? '');
 
@@ -353,7 +359,7 @@ export function installCharts({ grid, $, t, notify, selection, getLanguage = () 
     svg.querySelectorAll('[data-slice]').forEach(mark => mark.removeAttribute('transform'));
   }
   function activateSlice(index, clientX, clientY) {
-    const slice = model.slices?.[index]; if (!slice) return;
+    const slice = model.slices?.[index]; if (!slice) return; active=index;
     $('#chartPlot svg').querySelectorAll('[data-slice]').forEach(mark => mark.setAttribute('opacity', Number(mark.dataset.slice) === index ? 1 : 0.6));
     if (clientX == null) { const box = $('#chartPlot svg').getBoundingClientRect(); clientX = box.left + box.width / 2; clientY = box.top + box.height / 2; }
     showTooltip({ title: slice.name, rows: [{ color: slice.color, name: `${Math.round(slice.share * 1000) / 10} %`, value: format.format(slice.value) }] }, clientX, clientY);
@@ -367,7 +373,10 @@ export function installCharts({ grid, $, t, notify, selection, getLanguage = () 
       const hit = target.closest?.('[data-role="hits"] rect'); if (hit) activate(Number(hit.dataset.index), event.clientX, event.clientY);
     };
     plot.onpointerleave = () => { deactivate(); plot.querySelectorAll('[data-slice]').forEach(mark => mark.removeAttribute('opacity')); };
+    const choose=index=>{if(type==='pie')index=model.slices?.[index]?.index;if(onSelect&&model?.sourceRows[index]!=null)onSelect({row:model.sourceRows[index],column:model.sourceColumn})};
+    plot.onclick=event=>{const hit=event.target.closest?.('[data-role="hits"] rect, [data-slice]');if(hit)choose(Number(hit.dataset.index??hit.dataset.slice))};
     plot.onkeydown = event => {
+      if(event.key==='Enter'&&active>=0){event.preventDefault();choose(active);return;}
       if (!model || model.empty) return;
       const count = type === 'pie' ? model.slices.length : model.geometry.n;
       const next = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
@@ -432,28 +441,31 @@ export function installCharts({ grid, $, t, notify, selection, getLanguage = () 
   // ---- dialog -------------------------------------------------------------------
   function refresh(overrides) {
     model = build(overrides);
-    $('#chartRange').textContent = model ? `${toA1(model.box.r1, model.box.c1)}:${toA1(model.box.r2, model.box.c2)}` : '';
+    $('#chartRange').textContent = model ? `${toA1(model.box.r1, model.box.c1)}:${toA1(model.box.r2, model.box.c2)} · ${t('scope'+({visible:'Visible',all:'All',selection:'Selection'}[getAnalysis().scope||'visible']))}` : '';
     if (model && !model.empty) { $('#chartHeader').checked = model.header; $('#chartLabels').checked = model.labels; }
     $('#chartHeader').disabled = $('#chartLabels').disabled = !model;
     $('#chartType').disabled = $('#chartTableBtn').disabled = $('#chartSvg').disabled = $('#chartPng').disabled = !model || model.empty;
     render(); applyView();
   }
-  function open() {
-    grid.commitEdit();
+  function open(options={}) {
+    if(grid.commitEdit()===false)return;explicitRange=options.range?{...options.range}:null;if(options.chartType)type=options.chartType;
     $('#chartType').value = type; tableView = false;
     $('#chartDialog').showModal();
-    refresh();
+    refresh();rememberChart();
     $('#chartPlot').focus({ preventScroll: true });
   }
-  $('#chartBtn').onclick = open;
+  function rememberChart(){if(model&&!model.empty&&!grid.readOnly&&grid.saveVisualization&&!grid.visualizations.some(v=>v.chartType===type&&['r1','r2','c1','c2'].every(k=>v.range[k]===model.box[k])))grid.saveVisualization({name:`${grid.sheetName} · ${type}`,range:model.box,chartType:type});}
+  $('#chartBtn').onclick = ()=>open();
   $('#closeChart').onclick = () => $('#chartDialog').close();
-  $('#chartType').onchange = () => { type = $('#chartType').value; render(); applyView(); };
+  $('#chartType').onchange = () => { type = $('#chartType').value; render(); applyView();rememberChart(); };
   $('#chartHeader').onchange = () => refresh({ header: $('#chartHeader').checked, labels: $('#chartLabels').checked });
   $('#chartLabels').onchange = () => refresh({ header: $('#chartHeader').checked, labels: $('#chartLabels').checked });
   $('#chartTableBtn').onclick = () => { tableView = !tableView; applyView(); };
   $('#chartSvg').onclick = saveSVG;
   $('#chartPng').onclick = savePNG;
   $('#chartDialog').addEventListener('close', () => { tooltip().hidden = true; });
+  let refreshTimer;
+  const unsubscribers=['change','filter','analysis','worksheet'].map(event=>grid.on(event,()=>{clearTimeout(refreshTimer);if($('#chartDialog').open)refreshTimer=setTimeout(()=>{if($('#chartDialog').open)refresh()},80)}));
   wire();
-  return { open, refresh };
+  return { open, refresh, dispose(){clearTimeout(refreshTimer);unsubscribers.forEach(off=>off?.());probe.remove()} };
 }
