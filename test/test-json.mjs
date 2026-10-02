@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import TinyDatagrid, { FormulaEngine } from './src/tinygrid.js';
-import { JSONValue, queryJSON, setJSON, removeJSON, mergeJSON, flattenJSON, jsonEquals, rawText, toJSONData, stringifyJSON } from './src/json-values.js';
-import { inferDataValue } from './src/data-types.js';
-import * as features from './src/features.js';
+import TinyDatagrid, { FormulaEngine } from '../src/tinygrid.js';
+import { JSONValue, queryJSON, setJSON, removeJSON, mergeJSON, flattenJSON, jsonEquals, rawText, toJSONData, stringifyJSON } from '../src/json-values.js';
+import { inferDataValue } from '../src/data-types.js';
+import * as features from '../src/features.js';
 const { conditionalFormatting, dataValidation } = features;
 const optionalPlugins = () => ['dynamicArrays', 'jsonFunctions'].flatMap(name => typeof features[name] === 'function' ? [features[name]()] : []);
 

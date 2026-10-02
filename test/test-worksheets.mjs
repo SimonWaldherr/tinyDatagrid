@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import TinyDatagrid from './src/tinygrid.js';
-import { worksheets } from './src/worksheets.js';
+import TinyDatagrid from '../src/tinygrid.js';
+import { worksheets } from '../src/worksheets.js';
 
 class ModelGrid extends TinyDatagrid {
   build() {} bind() {} setLocale(locale) { this.locale = locale; return this; } render() { this._updateFilteredRows(); this.engine.settle(); } renderCells() {} layout() { this._updateFilteredRows(); } emit(type, detail) { (this.events ||= []).push({ type, ...detail }); }

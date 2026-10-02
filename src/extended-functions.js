@@ -1,3 +1,4 @@
+import { FormulaError } from './formula-errors.js';
 import { formulaNumber } from './numeric-values.js';
 // Synchronous, dependency-free formula extensions. Angles in GEO are degrees;
 // GEOM uses Cartesian coordinates. See docs/functions.md for signatures.
@@ -135,12 +136,12 @@ function uuid() {
 }
 function checked(min, max, fn) {
   return (...args) => {
-    if (args.length < min || args.length > max) return '#VALUE!';
+    if (args.length < min || args.length > max) return new FormulaError('#VALUE!');
     try {
       const value = fn(...args);
-      if ((Array.isArray(value) ? value.flat(Infinity) : [value]).some(n => typeof n === 'number' && !Number.isFinite(n))) return '#NUM!';
+      if ((Array.isArray(value) ? value.flat(Infinity) : [value]).some(n => typeof n === 'number' && !Number.isFinite(n))) return new FormulaError('#NUM!');
       return value;
-    } catch (error) { return error instanceof RangeError ? '#NUM!' : error instanceof TypeError ? '#VALUE!' : '#ERROR!'; }
+    } catch (error) { return error instanceof RangeError ? new FormulaError('#NUM!') : error instanceof TypeError ? new FormulaError('#VALUE!') : new FormulaError('#ERROR!'); }
   };
 }
 export function createExtendedFunctions() {

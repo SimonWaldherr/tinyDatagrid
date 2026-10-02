@@ -1,3 +1,4 @@
+import { FormulaError } from './formula-errors.js';
 import { parseNumericValue } from './numeric-values.js';
 import {
   JSON_LIMITS, JSONValue, isPlainObject, defineOwn, fromJSONData, toJSONData, parseJSONText, isJSONText, stringifyJSON,
@@ -9,13 +10,13 @@ import {
 class NotFound extends Error {}
 function checked(min, max, fn) {
   return (...args) => {
-    if (args.length < min || args.length > max) return '#VALUE!';
+    if (args.length < min || args.length > max) return new FormulaError('#VALUE!');
     try { return fn(...args); }
     catch (error) {
-      if (error instanceof NotFound) return '#N/A';
-      if (error instanceof RangeError) return '#NUM!';
+      if (error instanceof NotFound) return new FormulaError('#N/A');
+      if (error instanceof RangeError) return new FormulaError('#NUM!');
       if (error instanceof SyntaxError) return `#VALUE! ${String(error.message).slice(0, 140)}`;
-      return '#VALUE!';
+      return new FormulaError('#VALUE!');
     }
   };
 }

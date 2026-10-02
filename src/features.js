@@ -1,3 +1,4 @@
+import {DecimalValue,compareDecimals} from './decimal-values.js';
 import { heatColor } from './heatmap.js';
 // Optional UI/data features. Import only the factories your host needs.
 import { parseJSONText, isJSONContainer, JSONValue, jsonType } from './json-values.js';
@@ -52,6 +53,7 @@ export function dataValidation(){return {name:'validation',setup(grid){
       let valid=!empty;
       if(rule.type==='json')valid&&=isJSONData(value,rule.kind);
       else if(rule.type==='list')valid&&=rule.values.some(item=>Object.is(item,value)||String(item)===String(value));
+      else if(rule.type!=='textLength'&&(value instanceof DecimalValue||typeof value==='bigint')){try{const numeric=DecimalValue.parse(value);valid&&=(rule.type!=='integer'||numeric.scale===0)&&(rule.min==null||compareDecimals(numeric,rule.min)>=0)&&(rule.max==null||compareDecimals(numeric,rule.max)<=0);}catch{valid=false;}}
       else {const numeric=rule.type==='textLength'?Array.from(String(value??'')).length:typeof value==='number'||typeof value==='string'&&value.trim()!==''?Number(value):NaN;valid&&=Number.isFinite(numeric)&&(rule.type!=='integer'||Number.isInteger(numeric))&&(rule.min==null||numeric>=rule.min)&&(rule.max==null||numeric<=rule.max)}
       if(!valid)return rule.message||'Value does not satisfy the validation rule';
     }

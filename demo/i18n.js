@@ -1,4 +1,10 @@
 const text = {
+  toggleTools:['Werkzeuge ein- oder ausblenden','Show or hide tools'],
+  pivotAsFormula:['Als Formel einfügen','Insert as formula'],
+  pivotFormulaHint:['Ergebnis wächst automatisch in freie Zellen. Der Quellbereich bleibt fest; Filter gelten bei „Sichtbare Zeilen“. Bestehende Pivot-Objekte werden nicht umgewandelt.','Results expand into empty cells. The source range stays fixed; filters apply with “Visible rows”. Existing pivot objects are not converted.'],
+  pivotFormulaInserted:['Pivot-Formel eingefügt. Einstellungen in der Eingabezeile bearbeiten.','Pivot formula inserted. Edit its settings in the formula bar.'],
+  pivotFormulaSelectionEmpty:['Die Auswahl enthält keine Datenzeilen der Quelltabelle.','The selection contains no data rows from the source table.'],
+
   moreTools:['Weitere Werkzeuge ▾','More tools ▾'], sourceTable:['Quelltabelle','Source table'], pivotDestination:['Zielzelle','Destination cell'],
 
   sheetObjects:['Objekte','Objects'], objectsHint:['Objekte aller Blätter. Anklicken öffnet das Blatt und den Bereich. Entfernen einer Tabelle behält ihre Zellwerte.','Objects across all sheets. Click to open the sheet and range. Removing a table preserves cell values.'], noObjects:['Noch keine Tabellen, Pivots oder Diagramme im Workbook.','No tables, pivots or charts in this workbook yet.'], objectTables:['Tabellen','Tables'], objectPivots:['Pivot-Tabellen','Pivot tables'], objectCharts:['Diagramme','Charts'], removeObject:['Objekt entfernen','Remove object'], selectTableRange:['Markiere den gewünschten Datenbereich einschließlich Kopfzeile.','Select the data range including its header row.'],

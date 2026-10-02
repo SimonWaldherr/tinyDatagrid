@@ -1,3 +1,4 @@
+import { FormulaError, isFormulaError } from './formula-errors.js';
 import { PivotEngine } from './tinygrid.js';
 import { includesAnalysisRow, pivotAnalysis } from './analysis.js';
 const contains=(range,row,col)=>row>=range.r1&&row<=range.r2&&col>=range.c1&&col<=range.c2;
@@ -6,7 +7,7 @@ const rectangle=r=>r&&['r1','c1','r2','c2'].every(k=>Number.isInteger(r[k])&&r[k
 const rectOf=table=>({r1:table.headerRow,c1:table.c1,r2:table.r2,c2:table.c2});
 const sameRect=(a,b)=>a.r1===b.r1&&a.c1===b.c1&&a.r2===b.r2&&a.c2===b.c2;
 const AGGREGATES=['sum','count','counta','avg','average','min','max','first','last'];
-const error=value=>typeof value==='string'&&/^#(?:REF|VALUE|CYCLE|ERROR|NAME|DIV|NUM|N\/A|SPILL)/.test(value);
+const error=isFormulaError;
 function controller(grid){
   let refreshing=false,writing=false;
   const token=id=>grid._calculationKey(`pivot:${id}`);
@@ -30,25 +31,25 @@ function controller(grid){
       if(grid.engine.cache.has(key))continue;
       let table,failure=null;grid.engine.dependencies.begin(key);
       try{
-        const s=pivot.source,headers=[];for(let c=s.c1;c<=s.c2;c++)headers.push(String(grid.getComputedValue(s.r1,c)));
-        if(new Set(headers).size!==headers.length)throw new Error('#VALUE!');
+        const s=pivot.source,headers=[];for(let c=s.c1;c<=s.c2;c++)headers.push(String(grid.getCalculationValue(s.r1,c)));
+        if(new Set(headers).size!==headers.length)throw new FormulaError('#VALUE!');
         const fields=[...(pivot.config.rows||[]),...(pivot.config.columns||[]),...pivot.config.values.map(v=>typeof v==='string'?v:v.field),...Object.keys(pivot.config.filters||{})];
-        if(fields.some(f=>!headers.includes(f)))throw new Error('#REF!');
+        if(fields.some(f=>!headers.includes(f)))throw new FormulaError('#REF!');
         const records=[];for(let r=s.r1+1;r<=s.r2;r++){
           if(pivot.analysis?.scope==='visible'&&grid.isTableRowVisible?!grid.isTableRowVisible(r,s.c1):!includesAnalysisRow(grid,r,pivot.analysis||{scope:'all'}))continue;
-          const values=headers.map((_,i)=>grid.getComputedValue(r,s.c1+i));const invalid=values.find(error);if(invalid)throw new Error(invalid);
+          const values=headers.map((_,i)=>grid.getCalculationValue(r,s.c1+i));const invalid=values.find(error);if(invalid)throw invalid;
           if(values.some(v=>v!==''&&v!=null))records.push(Object.fromEntries(headers.map((h,i)=>[h,values[i]])));
         }
         table=PivotEngine.pivot(records,pivot.config).toTable();
         if(!table[0].length)table=[['Pivot']];
-      }catch(e){failure=error(e.message)?e.message:'#ERROR!';table=[[failure]]}
+      }catch(e){failure=error(e)?e:new FormulaError('#ERROR!',e.message);table=[[failure]]}
       finally{grid.engine.dependencies.end()}
       const range={r1:pivot.target.row,c1:pivot.target.col,r2:pivot.target.row+table.length-1,c2:pivot.target.col+Math.max(...table.map(r=>r.length))-1};
-      if(overlaps(range,pivot.source)||grid.pivotTables.some(p=>p.id!==pivot.id&&(overlaps(range,p.source)||p.output&&overlaps(range,p.output))))failure='#SPILL!';
-      for(let r=range.r1;r<=range.r2;r++)for(let c=range.c1;c<=range.c2;c++){const cell=grid.cells.get(grid.key(r,c));if(cell&&cell.pivotOwner!==pivot.id&&(cell.raw!==''&&cell.raw!=null||cell.pivotOwner)){failure='#SPILL!';grid.engine.dependencies.stack.push(key);try{grid.engine.dependencies.read(grid._calculationKey(grid.key(r,c)))}finally{grid.engine.dependencies.stack.pop()}}}
+      if(overlaps(range,pivot.source)||grid.pivotTables.some(p=>p.id!==pivot.id&&(overlaps(range,p.source)||p.output&&overlaps(range,p.output))))failure=new FormulaError('#SPILL!');
+      for(let r=range.r1;r<=range.r2;r++)for(let c=range.c1;c<=range.c2;c++){const cell=grid.cells.get(grid.key(r,c));if(cell&&cell.pivotOwner!==pivot.id&&(cell.raw!==''&&cell.raw!=null||cell.pivotOwner)){failure=new FormulaError('#SPILL!');grid.engine.dependencies.stack.push(key);try{grid.engine.dependencies.read(grid._calculationKey(grid.key(r,c)))}finally{grid.engine.dependencies.stack.pop()}}}
       const pending=[key],seen=new Set();
       while(pending.length){const dependency=pending.pop();if(seen.has(dependency))continue;seen.add(dependency);for(const child of grid.engine.dependencies.reads.get(dependency)||[])pending.push(child)}
-      for(let r=range.r1;r<=range.r2;r++)for(let c=range.c1;c<=range.c2;c++)if(seen.has(grid._calculationKey(grid.key(r,c)))&&!failure)failure='#CYCLE!';
+      for(let r=range.r1;r<=range.r2;r++)for(let c=range.c1;c<=range.c2;c++)if(seen.has(grid._calculationKey(grid.key(r,c)))&&!failure)failure=new FormulaError('#CYCLE!');
       if(failure){table=[[failure]];range.r2=range.r1;range.c2=range.c1}
       const dependencies=[...(grid.engine.dependencies.reads.get(key)||[])];
       // Remove only cells that have left this pivot's output rectangle.
@@ -68,7 +69,7 @@ function controller(grid){
     refresh,
     invalidateVisibility(){for(const pivot of grid.pivotTables)if(pivot.analysis?.scope==='visible')grid.engine.dependencies.invalidate(token(pivot.id))},
     drill(id,row,col){const pivot=grid.pivotTables.find(p=>p.id===id);if(!pivot)throw new Error('Unknown pivot');refresh();if(pivot.error)return {headers:[],entries:[]};const view=pivotAnalysis(grid,pivot.source,pivot.config,pivot.analysis||{scope:'all'});return {headers:view.headers,entries:view.drill(row-pivot.target.row,col-pivot.target.col)}},
-    beforeRead(row,col){if(refreshing&&grid.pivotTables.some(p=>p.output&&contains(p.output,row,col)))return '#CYCLE!';refresh();const owner=grid.cells.get(grid.key(row,col))?.pivotOwner;if(owner)grid.engine.dependencies.read(token(owner));return null},
+    beforeRead(row,col){if(refreshing&&grid.pivotTables.some(p=>p.output&&contains(p.output,row,col)))return new FormulaError('#CYCLE!');refresh();const owner=grid.cells.get(grid.key(row,col))?.pivotOwner;if(owner)grid.engine.dependencies.read(token(owner));return null},
     beforeWrite(key){if(writing||grid._pivotRestore)return;const cell=grid.cells.get(key);if(cell?.pivotOwner){const e=new Error('Pivot result cells cannot be edited; remove the pivot first.');e.validation={...Object.fromEntries(['row','col'].map((name,i)=>[name,Number(key.split(',')[i])])),message:e.message};throw e}},
     insert({source,table,target,config,analysis={scope:"all"}}){
       if(grid.readOnly)throw new Error('Grid is read-only');

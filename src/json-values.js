@@ -1,3 +1,6 @@
+import { FormulaError } from './formula-errors.js';
+import { CalendarDate, ClockTime, DurationValue } from './temporal-values.js';
+import { DecimalValue } from './decimal-values.js';
 import { parseDataJSON } from './numeric-values.js';
 // JSON as a first-class cell value. A JSONValue wraps a JSON object or array so
 // it cannot be confused with a spreadsheet range (which is a plain JS array).
@@ -63,6 +66,10 @@ export function unwrapCellValue(value) { return value instanceof JSONValue ? val
 /** Raw cell content as editable text. */
 export function rawText(value) {
   if (value == null) return '';
+  if(value instanceof FormulaError)return String(value);
+  if(value instanceof CalendarDate)return value.calendarText();
+  if(value instanceof ClockTime||value instanceof DurationValue)return String(value);
+  if (value instanceof DecimalValue) return value.toString();
   if (value instanceof JSONValue) return stringifyJSON(value.value);
   if (value instanceof Date) return value.toISOString();
   if (isObjectLike(value) && !(value instanceof ArrayBuffer) && !ArrayBuffer.isView(value)) return stringifyJSON(value);
@@ -85,6 +92,9 @@ export function toJSONData(value, depth = 0) {
     case 'bigint': return value.toString();
     case 'function': throw new TypeError('Functions cannot be converted to JSON');
   }
+  if(value instanceof CalendarDate)return value.calendarText();
+  if(value instanceof ClockTime||value instanceof DurationValue)return String(value);
+  if (value instanceof DecimalValue) return value.toString();
   if (value instanceof JSONValue) return value.value;
   if (value instanceof Date) {
     if (!Number.isFinite(value.getTime())) return null;

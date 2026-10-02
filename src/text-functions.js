@@ -1,3 +1,4 @@
+import { FormulaError } from './formula-errors.js';
 import { formulaNumber } from './numeric-values.js';
 // Text formulas use scalar text and Unicode code points for slicing/padding.
 // Regex patterns/flags follow JavaScript RegExp; patterns are never JavaScript code.
@@ -21,9 +22,9 @@ function count(value) {
 }
 function checked(min, max, fn) {
   return (...args) => {
-    if (args.length < min || args.length > max) return '#VALUE!';
+    if (args.length < min || args.length > max) return new FormulaError('#VALUE!');
     try { return fn(...args); }
-    catch (error) { return error instanceof RangeError ? '#NUM!' : '#VALUE!'; }
+    catch (error) { return error instanceof RangeError ? new FormulaError('#NUM!') : new FormulaError('#VALUE!'); }
   };
 }
 function trim(value, characters, side) {
@@ -70,6 +71,8 @@ function replaceAll(value, search, replacement) {
 export function createTextFunctions() {
   const functions = {
     LTRIM: checked(1,2,(value,chars) => trim(value,chars,'left')),
+    ENCODEURL: checked(1,1,value => encodeURIComponent(text(value))),
+    DECODEURL: checked(1,1,value => decodeURIComponent(text(value))),
     RTRIM: checked(1,2,(value,chars) => trim(value,chars,'right')),
     TRIM: checked(1,2,(value,chars) => trim(value,chars,'both')),
     SQUEEZE: checked(1,1,value => text(value).trim().replace(/\s+/gu,' ')),
@@ -86,7 +89,7 @@ export function createTextFunctions() {
     REGEXP: checked(2,3,(value,pattern,flags='u') => regex(pattern,flags).test(text(value))),
     REGEXP_EXTRACT: checked(2,4,(value,pattern,group=0,flags='u') => {
       const index = count(group), match = regex(pattern,flags).exec(text(value));
-      if (!match) return '#N/A';
+      if (!match) return new FormulaError('#N/A');
       if (index >= match.length) throw new RangeError('Unknown capture group');
       return match[index] ?? '';
     }),
@@ -101,9 +104,5 @@ export function createTextFunctions() {
       return [parts.map(part => part ?? '')];
     })
   };
-  Object.assign(functions, {
-    SUBSTRING:functions.SUBSTR, REGEXTEST:functions.REGEXP, REGEXMATCH:functions.REGEXP,
-    REGEXEXTRACT:functions.REGEXP_EXTRACT, REGEXREPLACE:functions.REGEXP_REPLACE
-  });
   return functions;
 }

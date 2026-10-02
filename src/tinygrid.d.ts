@@ -35,7 +35,7 @@ export type CellRange = { r1: number; c1: number; r2: number; c2: number };
 /** Synchronous host-provided callback. Ranges arrive as two-dimensional arrays. */
 export type SpreadsheetFunction = (...args: any[]) => unknown;
 export type SpreadsheetFunctions = Record<string, SpreadsheetFunction>;
-export type TinyDatagridOptions = Record<string, unknown> & { dataLocale?: string; dateParsing?: DateParsing; columnTypes?: Record<number,string>; functions?: SpreadsheetFunctions; historyLimit?: number; plugins?: GridPlugin[]; externalVariables?: Record<string, unknown> };
+export type TinyDatagridOptions = Record<string, unknown> & { protectFormulas?: boolean; dataLocale?: string; dateParsing?: DateParsing; columnTypes?: Record<number,string>; functions?: SpreadsheetFunctions; historyLimit?: number; plugins?: GridPlugin[]; externalVariables?: Record<string, unknown> };
 export type DateParsing = 'iso' | 'locale' | false;
 export type DelimitedImportOptions = { startRow?: number; startCol?: number; replace?: boolean; delimiter?: string; inferTypes?: boolean; locale?: string; dateParsing?: DateParsing; headerRow?: number };
 
@@ -49,6 +49,10 @@ export type SpillRange = { row: number; col: number; rows: number; cols: number 
 export class TinyDatagrid {
   constructor(container: string | Element, options?: TinyDatagridOptions);
   [key: string]: any;
+  getCalculationValue(row:number,col:number): unknown;
+  getCalculationState(options?:{settle?:boolean}): {phase:'calculating'|'pending'|'ready';revision:number;calculatedAt:string;errors:number};
+  getCellInfo(row:number,col:number): {address:string;raw:unknown;original:unknown;value:unknown;exact:string;display:string;type:string;error:{code:string;message:string}|null;formula:boolean;displayDiffers:boolean};
+  replaceFormulaWithValue(row:number,col:number,value?:unknown): boolean;
   use(plugin: GridPlugin): this;
   feature<T = any>(name: string): T | undefined;
   removePlugin(name: string): boolean;
@@ -140,7 +144,8 @@ export class FormulaEngine {
   registerFunction(name: string, fn: SpreadsheetFunction): this;
   registerFunctions(functions: SpreadsheetFunctions): this;
   unregisterFunction(name: string): boolean;
+  evaluateValue(formula:string): unknown;
   evaluateFormula(formula: string): unknown;
 }
-export class PivotEngine { static pivot(data: Record<string, unknown>[], config?: Record<string, unknown>): any; }
+export class PivotEngine { static fromArray(source: unknown[][], rowField: string, valueField: string, aggregate?: string, columnField?: string): unknown[][] | string; static pivot(data: Record<string, unknown>[], config?: Record<string, unknown>): any; }
 export default TinyDatagrid;

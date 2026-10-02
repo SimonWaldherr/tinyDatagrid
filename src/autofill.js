@@ -1,3 +1,4 @@
+import { CalendarDate } from './temporal-values.js';
 const DAY_MS = 86_400_000;
 const modulo = (value, length) => ((value % length) + length) % length;
 const isEmpty = value => value == null || value === '';
@@ -86,6 +87,7 @@ function formatNumericText(template, number, details) {
 }
 
 function parseDate(value) {
+  if(value instanceof CalendarDate){const date=new Date(0);date.setUTCFullYear(value.getFullYear(),value.getMonth(),value.getDate());date.setUTCHours(0,0,0,0);return {date,kind:'calendarDate'};}
   if (value instanceof Date && Number.isFinite(value.getTime())) {
     return { date: new Date(value.getTime()), kind: 'dateObject' };
   }
@@ -125,6 +127,7 @@ function addMonths(date, amount, preserveMonthEnd) {
 
 function formatDate(date, spec, template) {
   const pad = (value, width = 2) => String(value).padStart(width, '0');
+  if(spec.kind==='calendarDate')return new CalendarDate(date.getUTCFullYear(),date.getUTCMonth()+1,date.getUTCDate());
   if (spec.kind === 'dateObject') return new Date(date.getTime());
   if (spec.kind === 'isoDateTime') return date.toISOString();
   const year = String(date.getUTCFullYear()), month = pad(date.getUTCMonth() + 1, spec.monthWidth || 2), day = pad(date.getUTCDate(), spec.dayWidth || 2);
@@ -246,7 +249,7 @@ export function inferAutofillSeries(input) {
       };
       return finishSeries(values, makeSeries(values, 'date-month', monthStep, offset => formatDate(from(offset), dateValues[edge(offset)], values[edge(offset)]), edge));
     }
-    const step = dayStep == null ? (values.length === 1 ? 1 : null) : dayStep;
+    const step = values.length === 1 ? 1 : dayStep;
     if (step != null) {
       const edge = offset => offset < 0 ? 0 : values.length - 1;
       const from = offset => {

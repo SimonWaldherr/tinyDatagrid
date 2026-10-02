@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import TinyDatagrid from './src/tinygrid.js';
-import { JSONValue } from './src/json-values.js';
-import { worksheets } from './src/worksheets.js';
-import * as features from './src/features.js';
+import TinyDatagrid from '../src/tinygrid.js';
+import { JSONValue } from '../src/json-values.js';
+import { worksheets } from '../src/worksheets.js';
+import * as features from '../src/features.js';
 const optionalPlugins = () => ['dynamicArrays', 'jsonFunctions'].flatMap(name => typeof features[name] === 'function' ? [features[name]()] : []);
 
 class ModelGrid extends TinyDatagrid {

@@ -2,7 +2,8 @@ import type { TinyDatagrid } from './tinygrid.js';
 
 export type FormulaAssistOptions = { language?: string | (() => string); maxItems?: number };
 export type FormulaContext = { word: string; start: number; call: string | null; argument: number } | null;
-export function formulaNames(grid: TinyDatagrid): string[];
+export function formulaNames(grid: TinyDatagrid, language?: string): string[];
+export function searchFormulaNames(grid: TinyDatagrid, query: string, language?: string): string[];
 export function parseSignature(signature: string): { name: string; params: string[] };
 export function analyzeFormula(text: string, caret: number): FormulaContext;
 /** Add accessible formula completion and inline function argument hints to an input. */

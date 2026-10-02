@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { FormulaEngine, PivotEngine, colToName, nameToCol, parseA1 } from './src/tinygrid.js';
+import { FormulaEngine, PivotEngine, colToName, nameToCol, parseA1 } from '../src/tinygrid.js';
 
 assert.equal(colToName(0), 'A');
 assert.equal(colToName(25), 'Z');

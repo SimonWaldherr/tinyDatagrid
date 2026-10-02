@@ -1,3 +1,5 @@
+import { FormulaError } from './formula-errors.js';
+import { DecimalValue } from './decimal-values.js';
 // One conversion policy for cell inference and formula arithmetic. Decimal
 // round trips detect discarded input digits; this is not decimal arithmetic.
 const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
@@ -21,8 +23,9 @@ export function parseNumericValue(input) {
   return {value,numeric:true};
 }
 export function formulaNumber(value) {
-  if(value==null||value==='')return 0;
-  if(typeof value==='boolean')return value?1:0;
+  if(value instanceof DecimalValue)return value.toNumber();
+  if(value==null||value===''||typeof value==='boolean')throw new TypeError('Expected number; use explicit conversion for blanks and booleans');
+  if(typeof value==='string'&&/^[+-]?0\d/.test(value.trim()))throw new TypeError('Zero-padded identifier requires explicit VALUE conversion');
   const parsed=typeof value==='string'?parseNumericValue(value):{value,numeric:typeof value==='number'||typeof value==='bigint'};
   if(!parsed.numeric)throw new TypeError('Expected numeric value');
   if(parsed.lossy)throw new RangeError('Numeric conversion would lose precision');
@@ -32,7 +35,7 @@ export function formulaNumber(value) {
 }
 export function checkedResult(value) {
   if(Array.isArray(value))return value.map(checkedResult);
-  if(typeof value==='number'&&(!Number.isFinite(value)||(Number.isInteger(value)&&!Number.isSafeInteger(value))))return '#NUM!';
+  if(typeof value==='number'&&(!Number.isFinite(value)||(Number.isInteger(value)&&!Number.isSafeInteger(value))))return new FormulaError('#NUM!');
   return value;
 }
 

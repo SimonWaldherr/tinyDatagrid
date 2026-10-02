@@ -1,6 +1,6 @@
-const sheet="(?:'(?:''|[^'])*'|[A-Za-z_][A-Za-z0-9_.]*)";
+const sheet="(?:'(?:''|[^'])*'|[\\p{L}_][\\p{L}\\p{M}0-9_.]*)";
 const address='\\$?[A-Za-z]+\\$?[1-9][0-9]*';
-const pattern=new RegExp(`"(?:""|[^"])*"|(?<![A-Za-z0-9_@.$])(?:(?<sheet>${sheet})\\s*!\\s*)?(?<a>${address})(?:\\s*:\\s*(?:(?<endSheet>${sheet})\\s*!\\s*)?(?<b>${address}))?(?![A-Za-z0-9_.]|\\s*\\()`, 'g');
+const pattern=new RegExp(`"(?:""|[^"])*"|(?<![\\p{L}\\p{M}0-9_@.$])(?:(?<sheet>${sheet})\\s*!\\s*)?(?<a>${address})(?:\\s*:\\s*(?:(?<endSheet>${sheet})\\s*!\\s*)?(?<b>${address}))?(?![\\p{L}\\p{M}0-9_.]|\\s*\\()`, 'gu');
 const unquote=name=>name?.startsWith("'")?name.slice(1,-1).replaceAll("''", "'"):name;
 const cell=text=>{const m=/^(\$?)([A-Za-z]+)(\$?)(\d+)$/.exec(text);let c=0;for(const char of m[2].toUpperCase())c=c*26+char.charCodeAt(0)-64;return {row:+m[4]-1,col:c-1,ac:m[1],ar:m[3]}};
 function addressOf(p){let n=p.col+1,name='';while(n){name=String.fromCharCode(65+(n-1)%26)+name;n=Math.floor((n-1)/26)}return `${p.ac||''}${name}${p.ar||''}${p.row+1}`}

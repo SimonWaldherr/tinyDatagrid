@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import TinyDatagrid from './src/tinygrid.js';
-import { conditionalFormatting, dataValidation } from './src/features.js';
-import { heatmapRule } from './src/heatmap.js';
-import { featureTranslator } from './src/feature-i18n.js';
-import { listChoices } from './src/list-dropdown.js';
-import { CONDITIONS, PRESETS, parseRangeText, describeRange, subtractRange, parseRuleValue, parseListValues, conditionText, validationText, addConditionalFormat, removeConditionalFormat, setValidation, removeValidation } from './src/rule-tools.js';
+import TinyDatagrid from '../src/tinygrid.js';
+import { conditionalFormatting, dataValidation } from '../src/features.js';
+import { heatmapRule } from '../src/heatmap.js';
+import { featureTranslator } from '../src/feature-i18n.js';
+import { listChoices } from '../src/list-dropdown.js';
+import { CONDITIONS, PRESETS, parseRangeText, describeRange, subtractRange, parseRuleValue, parseListValues, conditionText, validationText, addConditionalFormat, removeConditionalFormat, setValidation, removeValidation } from '../src/rule-tools.js';
 
 class ModelGrid extends TinyDatagrid {
   build() {} bind() {} setLocale(locale) { this.locale = locale; return this; } render() { this._updateFilteredRows(); this.engine.settle(); } renderCells() {} layout() { this._updateFilteredRows(); } emit() {}

@@ -120,5 +120,7 @@ textarea.tg-editor{resize:both;white-space:pre;min-height:28px;max-height:240px;
 @media(forced-colors:active){.tg-worksheet-tab.has-color::after{background:Highlight}.tg-sheet-color[aria-checked=true]{outline-color:Highlight}}
 
 /* Keep promoted table labels readable without covering the column resize handle. */
+.tg-cell.tg-formula-reference{outline:2px solid var(--tg-reference-color,#397be5);outline-offset:-2px;background-image:linear-gradient(var(--tg-reference-fill,rgba(57,123,229,.16)),var(--tg-reference-fill,rgba(57,123,229,.16)))!important}
+@media(forced-colors:active){.tg-cell.tg-formula-reference{outline-color:Highlight;background-image:none!important}}
 .tg-colhead-label{display:block;min-width:0;max-width:100%;padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box}
 .tg-colhead-table{color:var(--tg-text);font-weight:600}

@@ -1,3 +1,4 @@
+import {openFormGenerator} from '../src/form-ui.js';
 import { installObjectBrowser } from './object-browser.js';
 import { analysisContext } from '../src/analysis.js';
 import { installAnalysisTools } from './analysis-tools.js';
@@ -11,6 +12,7 @@ import { exportPNG, printPDF } from '../src/exporters.js';
 import { inferDelimitedRows, inferDataValue } from '../src/data-types.js';
 import TinyDatagrid, { parseA1, toA1, parseCSV, detectDelimiter } from '../src/tinygrid.js';
 import { translator, languages, detectLanguage } from './i18n.js';
+import { installSheetGrowth, sheetLimits } from './sheet-growth.js';
 import * as features from '../src/features.js';
 const { freezePanes, conditionalFormatting, dataValidation } = features;
 // Optional formula plugins are installed when this build of the library provides them.
@@ -50,7 +52,7 @@ function applyTypeface() {
 }
 $('#language').replaceChildren(...languages.map(([code, name]) => new Option(name, code)));
 $('#language').value = language;
-const grid = new TinyDatagrid('#grid', { rows: 60, columns: 12, columnWidth: 120, rowHeight: 31, historyLimit: 100, plugins: [freezePanes(), conditionalFormatting(), dataValidation(), ...optionalPlugins, sheetPivots(), worksheets()], locale: language });
+const grid = new TinyDatagrid('#grid', { rows: 60, columns: 12, columnWidth: 120, rowHeight: 31, virtualization: true, historyLimit: 100, plugins: [freezePanes(), conditionalFormatting(), dataValidation(), ...optionalPlugins, sheetPivots(), worksheets()], locale: language });
 let shareError = false;
 let shared = false;
 if (location.hash.startsWith('#tg1.')) {
@@ -63,10 +65,21 @@ const autosave=await installAutosave(grid,{formula:$('#formula'),key:`demo:${loc
 $('.app').inert=false;
 grid.select(0,0);
 grid.clearHistory();
+installSheetGrowth(grid);
 applyTheme();applyTypeface();
 // iOS keeps the layout viewport under the keyboard; follow the visual viewport so the cell editor stays visible.
 if(window.visualViewport){
-  const syncViewport=()=>{const v=visualViewport;if(Math.abs(v.scale-1)<.01){document.documentElement.style.setProperty('--app-height',`${Math.round(v.height)}px`);if(v.offsetTop>0)scrollTo(0,0);}};
+  const syncViewport=()=>{
+    const v=visualViewport;
+    if(Math.abs(v.scale-1)>=.01)return;
+    document.documentElement.style.setProperty('--app-height',`${Math.round(v.height)}px`);
+    if(v.offsetTop>0)scrollTo(0,0);
+    requestAnimationFrame(()=>{
+      if(document.activeElement===grid.editor||document.activeElement===$('#formula')){
+        grid.layout();grid.scrollToCell(grid.anchor.row,grid.anchor.col);
+      }
+    });
+  };
   visualViewport.addEventListener('resize',syncViewport);visualViewport.addEventListener('scroll',syncViewport);syncViewport();
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if(theme==='system')applyTheme();});
@@ -168,7 +181,16 @@ $('#pivotTarget').oninput=syncControls;
 
 // Real tabs with a roving tab stop; the selected panel stays in normal tab order.
 const tabs=all('.ribbon-tabs [role="tab"]');
-function activateTab(tab){tabs.forEach(item=>{const active=item===tab;item.setAttribute('aria-selected',String(active));item.tabIndex=active?0:-1;$('#'+item.getAttribute('aria-controls')).hidden=!active;});}
+const phoneLayout=matchMedia('(max-width:560px)');
+function setRibbonExpanded(expanded){
+  $('.ribbon').classList.toggle('mobile-collapsed',!expanded);
+  $('#ribbonToggle').setAttribute('aria-expanded',String(expanded));
+  requestAnimationFrame(()=>{grid.layout();grid.scrollToCell(grid.anchor.row,grid.anchor.col);});
+}
+setRibbonExpanded(!phoneLayout.matches);
+phoneLayout.addEventListener('change',()=>setRibbonExpanded(!phoneLayout.matches));
+$('#ribbonToggle').onclick=()=>setRibbonExpanded($('#ribbonToggle').getAttribute('aria-expanded')!=='true');
+function activateTab(tab){setRibbonExpanded(true);tabs.forEach(item=>{const active=item===tab;item.setAttribute('aria-selected',String(active));item.tabIndex=active?0:-1;$('#'+item.getAttribute('aria-controls')).hidden=!active;});}
 tabs.forEach((tab,index)=>{tab.onclick=()=>activateTab(tab);tab.onkeydown=e=>{let next;if(e.key==='ArrowRight')next=(index+1)%tabs.length;else if(e.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(e.key==='Home')next=0;else if(e.key==='End')next=tabs.length-1;else return;e.preventDefault();activateTab(tabs[next]);tabs[next].focus();};});
 function applyLanguage(){
   t=translator(language);document.documentElement.lang=language;analysisTools.refreshLabels();
@@ -205,6 +227,7 @@ $('#formulaBar').onsubmit=e=>{e.preventDefault();applyFormula();};
 $('#formulaCancel').onclick=()=>{grid.el.focus({preventScroll:true});syncSelection();};
 $('#formula').onkeydown=e=>{
   if(e.isComposing||e.defaultPrevented)return;
+  if(grid._moveFormulaReference(e,$('#formula')))return;
   if((e.key==='Enter'&&!e.shiftKey)||e.key==='Tab'){
     e.preventDefault();applyFormula(e.key==='Tab'?(e.shiftKey?'left':'right'):((e.ctrlKey||e.metaKey)?'up':'down'));return;
   }
@@ -212,13 +235,23 @@ $('#formula').onkeydown=e=>{
 };
 let expandedFormula=false;
 function resizeFormula(){const input=$('#formula');input.style.height='auto';input.style.height=Math.min(expandedFormula?220:84,Math.max(32,input.scrollHeight))+'px';}
-$('#formulaExpand').onclick=()=>{expandedFormula=!expandedFormula;$('#formulaExpand').setAttribute('aria-expanded',String(expandedFormula));$('#formula').rows=expandedFormula?5:1;resizeFormula();};
+$('#formulaExpand').onclick=()=>{expandedFormula=!expandedFormula;$('#formulaExpand').setAttribute('aria-expanded',String(expandedFormula));$('#formula').rows=expandedFormula?5:1;$('#formulaBar').classList.toggle('formula-expanded',expandedFormula);resizeFormula();};
 $('#formula').oninput=resizeFormula;
+$('#formula').addEventListener('focus',()=>{delete $('#formula')._tgReference;});
+grid.canvas.addEventListener('pointerdown',e=>{
+  const input=$('#formula');
+  if(e.button!==0||document.activeElement!==input||e.target.closest('.tg-filter-trigger'))return;
+  const cell=e.target.closest('.tg-cell');
+  if(cell&&grid._formulaReferenceContext(input)){
+    e.preventDefault();e.stopImmediatePropagation();
+    grid._pickFormulaReference(+cell.dataset.row,+cell.dataset.col,input,e.shiftKey);
+  }
+},true);
 $('#moveRangeBtn').onclick=()=>{if(!grid.readOnly){$('#moveDialog').showModal();$('#moveTarget').focus();}};
 $('#closeMove').onclick=()=>$('#moveDialog').close();
 $('#moveForm').onsubmit=e=>{e.preventDefault();const point=parseA1($('#moveTarget').value);if(!point)return;try{if(grid.moveRange(selection(),point.row,point.col)===false){notify(t('moveRejected'));return}$('#moveDialog').close();syncData();}catch(error){fail(error)}};
 grid.on('historyconflict',()=>notify(t('historyConflict')));
-$('#nameBox').onkeydown=e=>{if(e.key!=='Enter')return;e.preventDefault();const [start,end,...rest]=$('#nameBox').value.trim().split(':');const a=parseA1(start||''),b=parseA1(end||start||'');if(rest.length||!a||!b||[a,b].some(p=>p.row<0||p.row>=10000||p.col<0||p.col>=256)||(a&&b&&(Math.abs(a.row-b.row)+1)*(Math.abs(a.col-b.col)+1)>10000)){notify(t('invalidAddress'));return;}
+$('#nameBox').onkeydown=e=>{if(e.key!=='Enter')return;e.preventDefault();const [start,end,...rest]=$('#nameBox').value.trim().split(':');const a=parseA1(start||''),b=parseA1(end||start||'');if(rest.length||!a||!b||[a,b].some(p=>p.row<0||p.row>=sheetLimits.rows||p.col<0||p.col>=sheetLimits.columns)||(a&&b&&(Math.abs(a.row-b.row)+1)*(Math.abs(a.col-b.col)+1)>10000)){notify(t('invalidAddress'));return;}
   // Keep navigation bounded to a manageable DOM size; larger sheets use virtualization.
   if(Math.max(a.row,b.row)>500||Math.max(a.col,b.col)>100)grid.setVirtualization(true);
   grid.goTo(a.row,a.col);grid.goTo(b.row,b.col);grid.select(a.row,a.col);grid.select(b.row,b.col,true);grid.el.focus({preventScroll:true});};
@@ -249,6 +282,7 @@ $('#sumBtn').onclick=()=>{
   if(s.c1!==s.c2||grid.getRawValue(s.r2+1,s.c1)!==''||!Array.from({length:s.r2-s.r1+1},(_,i)=>grid.getComputedValue(s.r1+i,s.c1)).some(v=>typeof v==='number')){notify(t('sumHint'));return;}
   grid.setCell(s.r2+1,s.c1,`=SUM(${toA1(s.r1,s.c1)}:${toA1(s.r2,s.c1)})`);grid.goTo(s.r2+1,s.c1);grid.el.focus({preventScroll:true});notify(t('sumAdded'));
 };
+$('#formGeneratorBtn').onclick=()=>{try{openFormGenerator({grid,title:grid.sheetName||'Eingabeformular'});}catch(error){fail(error);}};
 $('#toolFunctionsBtn').onclick=()=>{if($('#formulaHelpPanel').hidden)$('#formulaHelpBtn').click();$('#functionSearch').focus();};
 $('#toolReferencesBtn').onclick=()=>{if($('#dependencyPanel').hidden)$('#traceBtn').click();$('#precedentsBtn').focus();};
 $('#toolFitBtn').onclick=()=>$('#autoWidthBtn').click();
@@ -353,6 +387,8 @@ function syncPivotMode(){
   const pivot=editingPivot&&grid.feature('pivots')?.get(editingPivot);
   if(editingPivot&&!pivot){editingPivot=null;restoreScope();}
   $('#pivotEditBanner').hidden=!pivot;
+  $('#pivotAsFormula').disabled=!!pivot||grid.readOnly;
+  if(pivot)$('#pivotAsFormula').checked=false;
   const button=$('#insertPivotBtn'),key=pivot?'pvApply':'insertPivot';
   if(button.dataset.i18n!==key){button.dataset.i18n=key;button.textContent=t(key);}
   if(!pivot)return;
@@ -400,6 +436,18 @@ $('#insertPivotBtn').onclick=()=>{
     if(editingPivot){
       pivots.update(editingPivot,{table:table.id,target,analysis,config:pivotConfig(pivots.get(editingPivot).config)});
       notify(t('pvApplied'));
+    }else if($('#pivotAsFormula').checked){
+      const config=pivotConfig(),quote=value=>`"${String(value).replaceAll('"','""')}"`;
+      let source=rangeLabel({r1:table.headerRow,c1:table.c1,r2:table.r2,c2:table.c2});
+      if(analysis.scope==='selection'){
+        const selected=analysis.selection,r1=Math.max(table.headerRow+1,Math.min(selected.r1,selected.r2)),r2=Math.min(table.r2,Math.max(selected.r1,selected.r2));
+        if(r1>r2)throw new Error(t('pivotFormulaSelectionEmpty'));
+        const header=rangeLabel({r1:table.headerRow,r2:table.headerRow,c1:table.c1,c2:table.c2});
+        source=`VSTACK(${header};${rangeLabel({r1,r2,c1:table.c1,c2:table.c2})})`;
+      }
+      const formula=`=PIVOT(${source};${quote(config.rows[0])};${quote(config.values[0].field)};${quote(config.values[0].aggregate.toUpperCase())};${quote(config.columns[0]||'')};${quote(analysis.scope==='visible'?'visible':'all')})`;
+      if(grid.setCell(target.row,target.col,formula)===false)return;
+      notify(t('pivotFormulaInserted'));
     }else{
       pivots.insert({table:table.id,target,analysis,config:pivotConfig()});
       notify(fill(t('pvInserted'),{source:table.name}));

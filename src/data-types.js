@@ -1,3 +1,5 @@
+import { DecimalValue } from './decimal-values.js';
+import { CalendarDate } from './temporal-values.js';
 import { parseNumericValue, formulaNumber, parseDataJSON } from './numeric-values.js';
 const CURRENCY_CODES = new Map([
   ['€', 'EUR'], ['eur', 'EUR'], ['$','USD'], ['usd', 'USD'], ['£', 'GBP'], ['gbp', 'GBP'],
@@ -17,7 +19,7 @@ function numberSeparators(locale) {
   };
 }
 
-function parseNumberText(input, locale) {
+function parseNumberText(input, locale, {scientific=false} = {}) {
   let text = String(input).trim();
   if (!text) return null;
   let percent = false, currency = null, negative = false;
@@ -42,6 +44,7 @@ function parseNumberText(input, locale) {
   if (!/^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) return null;
   // Keep zero-padded whole numbers as text; they are usually identifiers or codes.
   if (!percent && !currency && /^0\d/.test(normalized)) return null;
+  if(!scientific&&!percent&&!currency&&/[eE]/.test(normalized))return null;
   const parsed = parseNumericValue(normalized);
   if (!parsed.numeric || parsed.lossy) return null;
   let value = parsed.value;
@@ -67,10 +70,11 @@ function parseISODateText(text) {
   if (hourText == null) {
     const date = new Date(0);date.setHours(0, 0, 0, 0);date.setFullYear(year, month - 1, day);
     if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
-    return { type: 'date', value: date };
+    return { type: 'date', value: new CalendarDate(year,month,day) };
   }
+  if(!zone)return null; // A timestamp needs an explicit timezone.
   const hour = Number(hourText), minute = Number(minuteText), second = Number(secondText || 0);
-  if (hour > 24 || minute > 59 || second > 59 || (hour === 24 && (minute || second || Number(fraction?.replace(',', '.') || 0)))) return null;
+  if (hour > 23 || minute > 59 || second > 59 || (hour === 24 && (minute || second || Number(fraction?.replace(',', '.') || 0)))) return null;
   if (zone && zone.toUpperCase() !== 'Z') {
     const offset = zone.slice(1).replace(':', '');
     if (Number(offset.slice(0, 2)) > 23 || Number(offset.slice(2)) > 59) return null;
@@ -96,7 +100,7 @@ function parseDateText(input, locale, dateParsing = 'iso') {
   else if (separator === '/' && Number(first) <= 12 && Number(second) > 12) { month = Number(first); day = Number(second); }
   const date = new Date(0);date.setHours(0, 0, 0, 0);date.setFullYear(year, month - 1, day);
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
-  return { type: 'date', value: date };
+  return { type: 'date', value: new CalendarDate(year,month,day) };
 }
 
 function parseStructuredText(value) {
@@ -110,15 +114,16 @@ function parseStructuredText(value) {
 }
 
 /** Identify and convert a single imported value without coercing ambiguous identifiers. */
-export function inferDataValue(input, { locale, dateParsing = 'iso' } = {}) {
+export function inferDataValue(input, { locale, dateParsing = 'iso', scientific=false } = {}) {
   if (![false, 'iso', 'locale'].includes(dateParsing)) throw new TypeError('dateParsing must be iso, locale, or false');
   if (input == null) return { type: 'null', value: input };
   if (typeof input === 'boolean') return { type: 'boolean', value: input };
   if (typeof input === 'bigint') return { type: 'integer', value: input };
   if (typeof input === 'number') return { type: Number.isInteger(input) ? 'integer' : 'number', value: input };
-  if (input instanceof Date && Number.isFinite(input.getTime())) return { type: 'datetime', value: input };
+  if (input instanceof Date && Number.isFinite(input.getTime())) return { type: input instanceof CalendarDate?'date':'datetime', value: input };
   if (input instanceof ArrayBuffer || ArrayBuffer.isView(input)) return { type: 'binary', value: input };
   if (Array.isArray(input)) return { type: 'json', value: input };
+  if(input instanceof DecimalValue)return {type:'decimal',value:input};
   if (typeof input === 'object') return { type: 'json', value: input };
   const text = String(input), trimmed = text.trim();
   if (!trimmed) return { type: 'empty', value: input };
@@ -128,7 +133,7 @@ export function inferDataValue(input, { locale, dateParsing = 'iso' } = {}) {
   if (date) return date;
   const structured = parseStructuredText(trimmed);
   if (structured) return structured;
-  const numeric = parseNumberText(trimmed, locale);
+  const numeric = parseNumberText(trimmed, locale, {scientific});
   if (numeric) return numeric;
   return { type: 'text', value: input };
 }
@@ -161,8 +166,8 @@ export function coerceDataValue(input, { type = 'unknown', locale } = {}) {
     return parsed?.type === 'integer' && (typeof parsed.value === 'bigint' || Number.isInteger(parsed.value)) ? parsed.value : input;
   }
   if (/^(decimal|numeric|money|smallmoney|dec)$/.test(base) || /^(numeric|decimal)\b/.test(normalized)) {
-    // Exact decimal columns retain their source text, never a rounded Number.
-    return input;
+    // Explicit decimal columns use exact base-10 values. Invalid input stays editable.
+    try { const parts=numberSeparators(locale),decimal=parts.decimal;let text=input.trim();if(parts.group&&text.includes(parts.group)){const escaped=parts.group.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const whole=text.split(decimal)[0];if(!new RegExp(`^[+-]?\\d{1,3}(?:${escaped}\\d{3})+$`).test(whole))return input;text=text.split(parts.group).join('');}if(decimal!=='.')text=text.replace(decimal,'.');return DecimalValue.parse(text); } catch { return input; }
   }
   if (/^(float|float4|float8|real|double|double precision|numeric_float|number)$/.test(base)) {
     const parsed = parseNumberText(input, locale);

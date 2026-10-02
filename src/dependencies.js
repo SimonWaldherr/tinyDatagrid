@@ -1,7 +1,7 @@
 /** Dynamic dependencies include the branches actually read by IF/lookup/custom functions. */
 export class Dependencies {
   constructor(cache) {
-    this.cache=cache;this.reads=new Map();this.users=new Map();this.stack=[];this.evaluations=0;
+    this.cache=cache;this.cycle=0;this.cycleTime=Date.now();this.reads=new Map();this.users=new Map();this.stack=[];this.evaluations=0;
     // Dynamic-array state. Keys are calculation keys, so worksheet views can share this object.
     this.spills=new Map();   // origin -> {row,col,rows,cols,matrix}
     this.covered=new Map();  // spilled cell -> origin
@@ -22,13 +22,14 @@ export class Dependencies {
   }
   /** Drop cached results that depend on key. Cells listed in skip are mid-evaluation and left alone. */
   invalidate(key,skip) {
-    const pending=[key],seen=new Set();
+    if(!skip){this.cycle++;this.cycleTime=Date.now();}
+    const pending=[key,...(!skip?(this.users.get('volatile:cycle')||[]):[])],seen=new Set();
     while(pending.length){const current=pending.pop();if(seen.has(current)||skip?.has(current))continue;seen.add(current);this.cache.delete(current);for(const user of this.users.get(current)||[])pending.push(user)}
     for(const current of seen){this.forget(current);this.dirty.add(current)}
     if(this.dirty.size>50000){this.dirty.clear();this.dirtyAll=true}
     return seen.size;
   }
-  clear(){this.cache.clear();this.reads.clear();this.users.clear();this.spills.clear();this.covered.clear();this.blocked.clear();this.dirty.clear();this.dirtyAll=true;}
+  clear(){this.cycle++;this.cycleTime=Date.now();this.cache.clear();this.reads.clear();this.users.clear();this.spills.clear();this.covered.clear();this.blocked.clear();this.dirty.clear();this.dirtyAll=true;}
 }
 
 export class CellMap extends Map {
@@ -37,7 +38,7 @@ export class CellMap extends Map {
     const old=this.get(key);
     if(old&&!Object.is(old.raw,value?.raw)&&Object.hasOwn(old,'originalInput')&&Object.is(old.originalInput,value?.originalInput))value={...value,originalInput:value.raw};
     if(!Object.is(old?.raw,value?.raw)||old?.valueType!==value?.valueType){
-      this.grid._validateWrite?.(key,value?.raw);
+      this.grid._validateWrite?.(key,value?.raw,value?.valueType);
       this.grid.engine?.dependencies.invalidate(this.grid._calculationKey(key));
       this.grid.engine?.cellChanged?.(key);
     }

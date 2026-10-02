@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { inferDataValue, inferDelimitedRows, coerceDataValue } from './src/data-types.js';
+import { inferDataValue, inferDelimitedRows, coerceDataValue } from '../src/data-types.js';
 const value=(text,options)=>inferDataValue(text,options).value;
 for(const symbol of ['MARCH1','SEPT1','SEPT9','DEC1','OCT4','1-Mar','Sep-2','00123'])assert.equal(value(symbol),symbol);
 const day=value('2024-02-29');
@@ -8,7 +8,7 @@ assert.equal(value('2026-09-28T12:34:56+02:00').toISOString(),'2026-09-28T10:34:
 assert.equal(value('2026-09-28T12:34:56+0200').toISOString(),'2026-09-28T10:34:56.000Z');
 assert.equal(value('2026-09-28t12:34z').toISOString(),'2026-09-28T12:34:00.000Z');
 assert.equal(value('2026-09-28T12:34:56,123Z').toISOString(),'2026-09-28T12:34:56.123Z');
-assert.equal(value('2026-09-28T24:00:00Z').toISOString(),'2026-09-29T00:00:00.000Z');
+assert.equal(value('2026-09-28T24:00:00Z'),'2026-09-28T24:00:00Z');
 for(const invalid of ['2025-02-29','2024-02-30T12:00:00Z','2026-13-01','2026-00-01','2026-09-00','2026-09-28T25:00Z','2026-09-28T24:01Z','2026-09-28T12:60Z','2026-09-28T12:00:60Z','2026-09-28T12:00+24:00','2026-09-28garbage'])assert.equal(value(invalid),invalid);
 assert.equal(value('01/02/2024'),'01/02/2024');
 assert.equal(value('01/02/2024',{locale:'en-US',dateParsing:'locale'}).getMonth(),0);

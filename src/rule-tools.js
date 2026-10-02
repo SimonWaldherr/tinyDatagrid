@@ -69,7 +69,7 @@ export function subtractRange(range, hole) {
 /** Typed value of a text field, read like input in a cell: numbers and TRUE/FALSE are converted, other text stays. */
 export function parseRuleValue(text, { locale } = {}) {
   const trimmed = String(text ?? '').trim();
-  const { type, value } = inferDataValue(trimmed, { locale, dateParsing: false });
+  const { type, value } = inferDataValue(trimmed, { locale, dateParsing: false, scientific: true });
   return (type === 'integer' || type === 'number') && typeof value === 'number' || type === 'boolean' ? value : trimmed;
 }
 

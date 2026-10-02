@@ -1,3 +1,4 @@
+import { CalendarDate } from './temporal-values.js';
 // History retains only changed values. Full comparison states are temporary and
 // released at the end of each action, including nested/bulk actions.
 const plain = value => value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
@@ -58,6 +59,7 @@ export function applyDifference(value, patch, forward) {
 }
 
 function copy(value) {
+  if(value instanceof CalendarDate)return new CalendarDate(value.getFullYear(),value.getMonth()+1,value.getDate());
   if (value instanceof Date) return new Date(value);
   if (value instanceof Map) return new Map([...value].map(([key, item]) => [key, copy(item)]));
   if (value instanceof Set) return new Set(value);

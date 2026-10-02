@@ -270,3 +270,38 @@ body{-webkit-tap-highlight-color:transparent;touch-action:manipulation;overscrol
 /* Editing an existing pivot in the analysis dialog */
 .pivot-edit-banner{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 12px;padding:10px 12px;border:1px solid var(--accent);border-radius:8px;background:var(--tint);font-size:12px}
 .pivot-edit-banner p{margin:0;line-height:1.5}
+
+.pivot-formula-option{display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer}.pivot-formula-option input{width:16px;height:16px;min-height:16px;margin:0;padding:0;accent-color:var(--accent)}
+
+
+/* Phone browsing: keep tools available without spending two rows on idle input. */
+#ribbonToggle{display:none}
+@media(max-width:560px){
+  .app{min-height:0}
+  .document-name input{width:100%;min-width:0;field-sizing:fixed}
+  #ribbonToggle{display:inline-flex;min-width:44px;min-height:44px;border:0;background:transparent;flex-shrink:0}
+  #ribbonToggle[aria-expanded="true"]{transform:rotate(180deg)}
+  .tab-line{gap:4px;padding-inline:8px}
+  .ribbon-tabs{flex:1;min-width:0;gap:12px;overflow-x:auto;scrollbar-width:none}
+  .ribbon-tabs button{min-height:44px;flex-shrink:0}
+  .help-button{padding-inline:4px;font-size:11px}
+  .ribbon.mobile-collapsed .ribbon-panel{display:none}
+  .formula-bar{display:grid;grid-template-columns:64px minmax(0,1fr) 44px;align-items:start;gap:4px;padding:4px 8px}
+  .formula-bar #nameBox{width:64px;min-height:44px;font-size:16px;grid-column:1;grid-row:1;margin:0;padding-inline:3px}
+  .formula-bar #formula{width:100%;min-height:44px;font-size:16px;grid-column:2;grid-row:1;resize:none;padding:10px 6px;white-space:pre}
+  .formula-bar.formula-expanded #formula{white-space:pre-wrap}
+  .formula-bar #formulaApply{grid-column:3;grid-row:1}
+  .formula-bar .icon-button{min-width:44px;min-height:44px}
+  .formula-bar #formulaExpand,.formula-bar #formulaHelpBtn,.formula-bar #traceBtn,.formula-bar #formulaCancel{display:none}
+  .formula-bar:focus-within,.formula-bar.formula-expanded{grid-template-columns:64px repeat(3,minmax(44px,1fr)) 44px}
+  .formula-bar:focus-within #formula,.formula-bar.formula-expanded #formula{grid-column:2 / 5}
+  .formula-bar:focus-within #formulaApply,.formula-bar.formula-expanded #formulaApply{grid-column:5}
+  .formula-bar:focus-within #formulaExpand,.formula-bar.formula-expanded #formulaExpand{display:inline-flex;grid-column:2;grid-row:2}
+  .formula-bar:focus-within #formulaHelpBtn,.formula-bar.formula-expanded #formulaHelpBtn{display:inline-flex;grid-column:3;grid-row:2}
+  .formula-bar:focus-within #traceBtn,.formula-bar.formula-expanded #traceBtn{display:inline-flex;grid-column:4;grid-row:2}
+  .formula-bar:focus-within #formulaCancel,.formula-bar.formula-expanded #formulaCancel{display:inline-flex;grid-column:5;grid-row:2}
+  .formula-bar #formulaHint{display:none}
+}
+@media(max-width:360px){
+  .header-actions #importBtn,.header-actions #exportBtn{display:none}
+}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import TinyDatagrid from './src/tinygrid.js';
-import * as features from './src/features.js';
+import TinyDatagrid from '../src/tinygrid.js';
+import * as features from '../src/features.js';
 const { dataValidation } = features;
 const optionalPlugins = () => ['dynamicArrays', 'jsonFunctions'].flatMap(name => typeof features[name] === 'function' ? [features[name]()] : []);
 

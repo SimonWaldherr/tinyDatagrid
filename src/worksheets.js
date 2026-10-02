@@ -1,3 +1,4 @@
+import { FormulaError } from './formula-errors.js';
 import { parseDataJSON } from './numeric-values.js';
 import { TinyDatagrid, FormulaEngine, fromPortableValue } from './tinygrid.js';
 /** Optional worksheet collection. Each sheet has its own data, selection and undo stack. */
@@ -57,7 +58,7 @@ export function worksheets(){return {name:'worksheets',setup(grid){
       isAnalysisRowVisible(row){return view.isTableRowVisible(row,0)},
       _calculationKey:key=>JSON.stringify([id,key]),
       key:TinyDatagrid.prototype.key,getCell:TinyDatagrid.prototype.getCell,
-      getRawValue:TinyDatagrid.prototype.getRawValue,getComputedValue:TinyDatagrid.prototype.getComputedValue,getVariable:TinyDatagrid.prototype.getVariable,_spillValue:TinyDatagrid.prototype._spillValue,getSpill:TinyDatagrid.prototype.getSpill
+      getRawValue:TinyDatagrid.prototype.getRawValue,getComputedValue:TinyDatagrid.prototype.getComputedValue,getCalculationValue:TinyDatagrid.prototype.getCalculationValue,getVariable:TinyDatagrid.prototype.getVariable,_spillValue:TinyDatagrid.prototype._spillValue,getSpill:TinyDatagrid.prototype.getSpill
     };
     view.engine=new FormulaEngine(view);view.engine.cache=grid.engine.cache;view.engine.dependencies=grid.engine.dependencies;
     view.engine.functions=grid.engine.functions;view.engine._customFunctions=grid.engine._customFunctions;
@@ -92,7 +93,13 @@ export function worksheets(){return {name:'worksheets',setup(grid){
     resolve,
     read(name,cell,visiting=new Set()){
       const id=resolve(name);grid.engine.dependencies.read('worksheets:names');
-      if(!id)return '#REF!';return model(id).getComputedValue(cell.row,cell.col,visiting);
+      if(!id)return new FormulaError('#REF!');return model(id).getCalculationValue(cell.row,cell.col,visiting);
+    },
+    isRowVisible(name,row,col){
+      const id=resolve(name);grid.engine.dependencies.read('worksheets:names');
+      if(!id)return false;
+      const view=model(id);grid.engine.dependencies.read(view._calculationKey('visibility'));
+      return view.isTableRowVisible(row,col);
     },
     list(){return [...sheets].map(([id,{sheet}])=>({id,name:id===active?grid.sheetName:sheet.name,color:meta.get(id)?.color??null,hidden:isHidden(id)}))},
     add(name){
@@ -162,6 +169,7 @@ export function worksheets(){return {name:'worksheets',setup(grid){
     if(switching||options.replace===false)return importOne.call(grid,input,options);
     if(grid._historyDepth)throw new Error('Import a worksheet collection outside a transaction');
     const workbook=typeof input==='string'?parseDataJSON(input):input;
+    if(workbook?.formulaModel&&workbook.formulaModel!=='structured-v1')throw new TypeError('Unsupported formula model');
     if(!Array.isArray(workbook?.sheets)||!workbook.sheets.length)return importOne.call(grid,input,options);
     const ids=new Set();for(const sheet of workbook.sheets){if(typeof sheet.id!=='string'||ids.has(sheet.id)||!Array.isArray(sheet.cells))throw new TypeError('Invalid worksheet collection');ids.add(sheet.id)}
     const selected=ids.has(workbook.activeSheetId)?workbook.activeSheetId:workbook.sheets[0].id;

@@ -1,4 +1,5 @@
-import { functionHelp, documentedFunctions } from './function-help.js';
+import { formulaCatalog, formulaDefinition, localizedFormulaName, resolveFormulaName } from './formula-catalog.js';
+import { functionHelp } from './function-help.js';
 
 // Formula autocomplete and argument hints for any text input or textarea.
 //   attachFormulaAssist(grid.editor, grid)            in-cell editor
@@ -8,12 +9,28 @@ const cellReference = /^\$?[A-Za-z]{1,3}\$?\d+$/;
 
 function escapeText(text) { return text.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]); }
 /** Everything the formula engine can call: documented names, built-ins, feature functions and host callbacks. */
-export function formulaNames(grid) {
-  const names = new Set(documentedFunctions());
-  for (const name of Object.keys(grid.engine?.functions || {})) names.add(name);
-  for (const feature of grid.engine?._formulaFeatures?.values?.() || []) for (const name of feature.functions.keys()) names.add(name);
+export function formulaNames(grid, language='en') {
+  const functions=grid.engine?.functions||{}, names=new Set();
+  for(const record of formulaCatalog){
+    if(record.availability==='core'||typeof functions[record.id]==='function')names.add(localizedFormulaName(record.id,language));
+  }
+  for(const name of Object.keys(functions))if(!formulaDefinition(name))names.add(name);
+  for(const feature of grid.engine?._formulaFeatures?.values?.()||[])for(const name of feature.functions.keys())names.add(localizedFormulaName(name,language));
   return [...names].sort();
 }
+
+const searchKey=value=>String(value).normalize('NFD').replace(/\p{M}/gu,'').toUpperCase();
+/** Search all accepted names, returning one preferred localized name per operation. */
+export function searchFormulaNames(grid, query, language='en') {
+  const needle=searchKey(query), names=formulaNames(grid,language), starts=[],inside=[];
+  for(const name of names){
+    const aliases=[name,...(formulaDefinition(name)?.aliases??[])].map(searchKey);
+    if(aliases.some(alias=>alias.startsWith(needle)))starts.push(name);
+    else if(aliases.some(alias=>alias.includes(needle)))inside.push(name);
+  }
+  return [...starts,...inside];
+}
+
 /** Split a signature such as JSON.GET(json; path; default?) into its name and parameter list. */
 export function parseSignature(signature) {
   const open = signature.indexOf('('), close = signature.lastIndexOf(')');
@@ -25,7 +42,7 @@ export function analyzeFormula(text, caret) {
   if (!text.startsWith('=')) return null;
   const before = text.slice(0, caret).replace(/"(?:""|[^"])*"/g, '""');
   if (before.includes('"')) return null; // the caret is inside a text literal
-  const word = /(@?[A-Za-z_][A-Za-z0-9_.]*)$/.exec(before);
+  const word = /(@?[\p{L}_][\p{L}\p{M}0-9_.]*)$/u.exec(before);
   let depth = 0, argument = 0, index = before.length - 1;
   for (; index >= 0; index--) {
     const ch = before[index];
@@ -33,7 +50,7 @@ export function analyzeFormula(text, caret) {
     else if (ch === '(') { if (!depth) break; depth--; }
     else if ((ch === ';' || ch === ',') && !depth) argument++;
   }
-  const call = index >= 0 ? /([A-Za-z_][A-Za-z0-9_.]*)\s*$/.exec(before.slice(0, index))?.[1] : null;
+  const call = index >= 0 ? /([\p{L}_][\p{L}\p{M}0-9_.]*)\s*$/u.exec(before.slice(0, index))?.[1] : null;
   return { word: word?.[1] ?? '', start: caret - (word?.[1].length ?? 0), call: call ? call.toUpperCase() : null, argument };
 }
 
@@ -52,7 +69,7 @@ export function attachFormulaAssist(input, grid, options = {}) {
 
   const info = name => functionHelp(name, language(), grid.options?.functionHelp || {});
   let names = [];
-  const known = name => names.includes(name);
+  const known = name => { try { const id=resolveFormulaName(name);return names.some(candidate=>resolveFormulaName(candidate)===id); } catch { return false; } };
 
   function candidates(word) {
     if (!word || cellReference.test(word)) return [];
@@ -60,9 +77,7 @@ export function attachFormulaAssist(input, grid, options = {}) {
       const query = word.slice(1).toLowerCase(), names = new Set([...(grid.variables?.keys?.() || []), ...(grid.externalVariables?.keys?.() || [])]);
       return [...names].filter(name => name.toLowerCase().startsWith(query) && name.toLowerCase() !== query).sort().slice(0, maxItems).map(name => ({ name: `@${name}`, kind: 'variable' }));
     }
-    const query = word.toUpperCase(), all = names;
-    const starts = all.filter(name => name.startsWith(query) && name !== query), inside = all.filter(name => !name.startsWith(query) && name.includes(query));
-    return [...starts, ...inside].slice(0, maxItems).map(name => ({ name, kind: 'function' }));
+    return searchFormulaNames(grid,word,language()).slice(0,maxItems).map(name=>({name,kind:'function'}));
   }
   function renderHint(current) {
     if (!current.call || !known(current.call)) { hint.hidden = true; return; }
@@ -95,7 +110,7 @@ export function attachFormulaAssist(input, grid, options = {}) {
     if (document.activeElement !== input) { close(); return; }
     context = analyzeFormula(input.value, input.selectionStart ?? 0);
     if (!context) { close(); return; }
-    names = formulaNames(grid);
+    names = formulaNames(grid, language());
     renderHint(context); renderList(context);
     const visible = !hint.hidden || items.length;
     popup.hidden = !visible;
@@ -124,6 +139,7 @@ export function attachFormulaAssist(input, grid, options = {}) {
     list.children[active]?.scrollIntoView({ block: 'nearest' });
   }
   function keydown(event) {
+    if(grid._formulaReferenceContext?.(input)&&/^Arrow/.test(event.key))return;
     if (popup.hidden || !items.length || event.isComposing || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); event.stopImmediatePropagation(); move(event.key === 'ArrowDown' ? 1 : -1); }
     else if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); event.stopImmediatePropagation(); accept(); }
@@ -157,12 +173,15 @@ export function installFormulaTools({ grid, $, t, language = () => grid.locale |
   }
   function refreshFunctionHelp() {
     const query = $('#functionSearch').value.toUpperCase(), selected = $('#functionList').value;
-    const names = [...new Set([...documentedFunctions(), ...Object.keys(grid.engine.functions)])].sort().filter(name => name.includes(query));
+    const names = searchFormulaNames(grid,query,language());
     $('#functionList').replaceChildren(...names.map(name => new Option(name, name)));
     if (names.includes(selected)) $('#functionList').value = selected;
     const formula = $('#formula'), text = formula.value.slice(0, formula.selectionStart).replace(/"(?:""|[^"])*"/g, '');
-    const current = [...text.matchAll(/([A-Za-z_][A-Za-z0-9_.]*)\s*\(/g)].at(-1)?.[1].toUpperCase();
-    if (!query && names.includes(current)) $('#functionList').value = current;
+    const current = [...text.matchAll(/([\p{L}_][\p{L}\p{M}0-9_.]*)\s*\(/gu)].at(-1)?.[1].toUpperCase();
+    if (!query && current) {
+      try { const preferred=localizedFormulaName(current,language());if(names.includes(preferred))$('#functionList').value=preferred; }
+      catch { /* A partially typed call has no catalog entry yet. */ }
+    }
     if (names.length) showFunction($('#functionList').value);
     else { $('#functionSignature').textContent = ''; $('#functionDescription').textContent = t('noMatches'); }
   }

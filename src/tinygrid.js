@@ -1,3 +1,10 @@
+import { numericOperand, arithmetic, divideNumbers, sumNumbers, meanNumbers, numericExtreme, numericCount } from './numeric-operations.js';
+import { compareScalars } from './scalar-comparison.js';
+import { FormulaError, isFormulaError, displayFormulaResult } from './formula-errors.js';
+import { codePoints, textIndex, findText } from './unicode-text.js';
+import { CalendarDate, ClockTime, DurationValue } from './temporal-values.js';
+import { DecimalValue, decimalOperation, compactDecimal, roundDecimal, exactDivide, createDecimalFunctions, formatDecimal, compareDecimals } from './decimal-values.js';
+import { resolveFormulaName, formulaCatalog, formulaDefinition } from './formula-catalog.js';
 import { formulaNumber, parseNumericValue, checkedResult, parseDataJSON } from './numeric-values.js';
 /* tinyDatagrid - dependency-free spreadsheet/grid/pivot library
  * MIT License
@@ -6,8 +13,11 @@ import { formulaNumber, parseNumericValue, checkedResult, parseDataJSON } from '
 import { inferAutofillSeries, findAutofillExtent } from './autofill.js';
 import { inferColumnType, coerceDataValue, inferDelimitedRows, inferDataValue } from './data-types.js';
 import { createLookupFunctions } from './lookups.js';
+import { createCalendarFunctions } from './calendar-functions.js';
+import { createColorFunctions } from './color-functions.js';
 import { createExtendedFunctions } from './extended-functions.js';
 import { createTextFunctions } from './text-functions.js';
+import { createArrayFunctions } from './array-functions.js';
 import { createJsonFunctions } from './json-functions.js';
 import { JSONValue, wrapCellValue, wrapResult, unwrapCellValue, rawText, jsonEquals, flattenValues, rowsOf } from './json-values.js';
 import { translate } from './i18n.js';
@@ -17,8 +27,8 @@ import { references, followsMove, containsReference } from './references.js';
 let gridSequence=0;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-function toPortableValue(value){if(value instanceof JSONValue)return toPortableValue(value.value);if(value instanceof Date)return {$tinyDatagridType:'date',value:value.toISOString()};if(typeof value==='bigint')return {$tinyDatagridType:'bigint',value:String(value)};if(value instanceof ArrayBuffer)return {$tinyDatagridType:'binary',value:[...new Uint8Array(value)]};if(ArrayBuffer.isView(value))return {$tinyDatagridType:'binary',value:[...new Uint8Array(value.buffer,value.byteOffset,value.byteLength)]};if(Array.isArray(value))return value.map(toPortableValue);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,toPortableValue(item)]));return value}
-export function fromPortableValue(value){if(Array.isArray(value))return value.map(fromPortableValue);if(value&&typeof value==='object'){if(value.$tinyDatagridType==='date'&&typeof value.value==='string')return new Date(value.value);if(value.$tinyDatagridType==='bigint'&&typeof value.value==='string')return BigInt(value.value);if(value.$tinyDatagridType==='binary'&&Array.isArray(value.value))return Uint8Array.from(value.value);return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,fromPortableValue(item)]))}return value}
+function toPortableValue(value){if(value instanceof FormulaError)return value.toJSON();if(value instanceof CalendarDate||value instanceof ClockTime||value instanceof DurationValue)return value.toJSON();if(value instanceof DecimalValue)return value.toJSON();if(value instanceof JSONValue)return toPortableValue(value.value);if(value instanceof Date)return {$tinyDatagridType:'date',value:value.toISOString()};if(typeof value==='bigint')return {$tinyDatagridType:'bigint',value:String(value)};if(value instanceof ArrayBuffer)return {$tinyDatagridType:'binary',value:[...new Uint8Array(value)]};if(ArrayBuffer.isView(value))return {$tinyDatagridType:'binary',value:[...new Uint8Array(value.buffer,value.byteOffset,value.byteLength)]};if(Array.isArray(value))return value.map(toPortableValue);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,toPortableValue(item)]));return value}
+export function fromPortableValue(value){if(Array.isArray(value))return value.map(fromPortableValue);if(value&&typeof value==='object'){if(value.$tinyDatagridType==='error')return new FormulaError(value.code,value.message);if(value.$tinyDatagridType==='calendar-date')return CalendarDate.parse(value.value);if(value.$tinyDatagridType==='time')return new ClockTime(value.seconds);if(value.$tinyDatagridType==='duration')return new DurationValue(value.seconds);if(value.$tinyDatagridType==='decimal')return DecimalValue.parse(value.value);if(value.$tinyDatagridType==='date'&&typeof value.value==='string')return new Date(value.value);if(value.$tinyDatagridType==='bigint'&&typeof value.value==='string')return BigInt(value.value);if(value.$tinyDatagridType==='binary'&&Array.isArray(value.value))return Uint8Array.from(value.value);return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,fromPortableValue(item)]))}return value}
 function cursorKey(value){try{return JSON.stringify(toPortableValue(value))??String(value)}catch{return String(value)}}
 const SHARE_HASH_PREFIX='tg1.';
 function encodeSharePayload(value){
@@ -121,8 +131,12 @@ const flatten = flattenValues;
 const flattenPlain = v => Array.isArray(v) ? v.flat(Infinity) : [v];
 
 const asNumber = formulaNumber;
+const blank=value=>value===''||value==null;
+function convertNumber(value,allowBlank=false){if(blank(value)){if(allowBlank)return 0;throw new TypeError('Blank is not a number');}if(typeof value==='boolean')return value?1:0;const parsed=typeof value==='string'?parseNumericValue(value):{numeric:true,value};if(!parsed.numeric||parsed.lossy)throw new TypeError('Invalid numeric conversion');return parsed.value;}
+function selectAggregate(values,pairs,aggregate){if(!pairs.length||pairs.length%2)return new FormulaError('#VALUE!');const data=flatten(values),ranges=pairs.filter((_,i)=>i%2===0).map(flatten),criteria=pairs.filter((_,i)=>i%2===1);if(ranges.some(range=>range.length!==data.length))return new FormulaError('#VALUE!');return aggregate(data.filter((_,i)=>criteria.every((criterion,j)=>criteriaMatches(ranges[j][i],criterion))));}
+function bool(value){if(typeof value!=='boolean')throw new TypeError('Expected boolean condition');return value;}
 
-function isFormulaError(value) { return typeof value === 'string' && /^#(?:REF!|N\/A|VALUE!|NAME[?!]|NUM!|DIV\/0!|ERROR!|CYCLE!|SPILL!|RANGE!)/.test(value); }
+
 function criteriaMatches(value, criteria) {
   const text=String(criteria??'');const match=/^(<=|>=|<>|!=|=|<|>)(.*)$/.exec(text);let operator='=',expected=criteria;
   if(match){operator=match[1];expected=match[2]}
@@ -150,17 +164,20 @@ function broadcast(values, fn) {
       const matrix = matrices[k];
       if (!matrix) { items.push(values[k]); continue; }
       const [h, w] = shapes[k], ii = h === 1 ? 0 : i, jj = w === 1 ? 0 : j;
-      if (ii >= h || jj >= w) return '#N/A';
+      if (ii >= h || jj >= w) return new FormulaError('#N/A');
       items.push(matrix[ii][jj] ?? '');
     }
     return fn(...items);
   }));
 }
-const elementError = error => error instanceof RangeError ? '#NUM!' : '#VALUE!';
+const elementError = error => error instanceof RangeError ? new FormulaError('#NUM!') : new FormulaError('#VALUE!');
 // Scalar functions that map over ranges (=UPPER(A1:A9), =JSON.GET(A1:A9; "id")).
 const LIFTED = new Set(['ABS','ROUND','ROUNDUP','ROUNDDOWN','FLOOR','CEIL','INT','SQRT','POW','POWER','MOD','SIGN','EXP','LN','LOG','NOT','ISBLANK','ISNUMBER','ISTEXT','ISLOGICAL','N','VALUE','LEN','UPPER','LOWER','PROPER','LEFT','RIGHT','MID','FIND','SEARCH','SUBSTITUTE','REPLACE','TEXT','YEAR','MONTH','DAY','HOUR','MINUTE','SECOND','DATE','DATEVALUE','DAYS',
-  'TRIM','LTRIM','RTRIM','SQUEEZE','SUBSTR','SUBSTRING','REVERSE','REPEAT','STARTSWITH','ENDSWITH','CONTAINS','REPLACEALL','PADSTART','PADEND','REGEXP','REGEXTEST','REGEXMATCH','REGEXP_EXTRACT','REGEXEXTRACT','REGEXP_REPLACE','REGEXREPLACE',
+  'ENCODEURL','DECODEURL','TRIM','LTRIM','RTRIM','SQUEEZE','SUBSTR','SUBSTRING','REVERSE','REPEAT','STARTSWITH','ENDSWITH','CONTAINS','REPLACEALL','PADSTART','PADEND','REGEXP','REGEXTEST','REGEXMATCH','REGEXP_EXTRACT','REGEXEXTRACT','REGEXP_REPLACE','REGEXREPLACE',
   'RADIANS','DEGREES','SIN','COS','TAN','ASIN','ACOS','ATAN','ATAN2','GEO.DISTANCE','GEO.BEARING','GEOM.DISTANCE','GEOM.CIRCLE.AREA','GEOM.CIRCLE.CIRCUMFERENCE','GEOM.RECTANGLE.AREA','GEOM.TRIANGLE.AREA','GEOM.SPHERE.VOLUME','GEOM.SPHERE.AREA','HASH.SHA256','HASH.FNV1A','HASH.CRC32',
+  ...Object.keys(createCalendarFunctions()).filter(name=>!['DATE.SEQUENCE','TODAY','NOW','NETWORKDAYS','NETWORKDAYS.INTL','WORKDAY','WORKDAY.INTL'].includes(name)),
+  ...Object.keys(createColorFunctions()).filter(name=>name!=='COLOR.PALETTE'),
+  'DECIMAL.PARSE','DECIMAL.ADD','DECIMAL.SUBTRACT','DECIMAL.MULTIPLY','DECIMAL.DIVIDE','DECIMAL.ROUND','DECIMAL.FORMAT','DECIMAL.NUMBER',
   'JSON.PARSE','JSON.GET','JSON.HAS','JSON.TYPE','JSON.VALID','JSON.LENGTH']);
 
 /** Text matcher shared by find() and replace(). */
@@ -193,7 +210,7 @@ class FormulaTokenizer {
       if(c==='!'){this.tokens.push({type:'!',value:c});this.i++;continue;}
       if(c==='#'){this.tokens.push({type:'#',value:c});this.i++;continue;}
       if (/[0-9.]/.test(c)) { this.tokens.push(this.readNumber()); continue; }
-      if (/[A-Za-z_@$]/.test(c)) { this.tokens.push(this.readIdent()); continue; }
+      if (/[\p{L}_@$]/u.test(c)) { this.tokens.push(this.readIdent()); continue; }
       const two = this.s.slice(this.i, this.i + 2);
       if (['<=','>=','<>','!=','=='].includes(two)) { this.tokens.push({type:'op',value:two}); this.i += 2; continue; }
       if (c === ',' || c === ';') { this.tokens.push({type:',',value:','}); this.i++; continue; }
@@ -207,15 +224,16 @@ class FormulaTokenizer {
     return this.tokens;
   }
   readString() {
-    this.i++; let out = '';
+    this.i++; let out = '',closed=false;
     while (this.i < this.s.length) {
       const c = this.s[this.i++];
       if (c === '"') {
         if (this.s[this.i] === '"') { out += '"'; this.i++; continue; }
-        break;
+        closed=true;break;
       }
       out += c;
     }
+    if(!closed)throw new Error('Unclosed text literal');
     return {type:'string', value:out};
   }
   readNumber() {
@@ -230,7 +248,7 @@ class FormulaTokenizer {
   readIdent() {
     const start = this.i;
     if (this.s[this.i] === '@') this.i++;
-    while (/[A-Za-z0-9_.$]/.test(this.s[this.i] || '')) this.i++;
+    while (/[\p{L}\p{M}0-9_.$]/u.test(this.s[this.i] || '')) this.i++;
     return {type:'ident', value:this.s.slice(start, this.i)};
   }
 }
@@ -283,12 +301,7 @@ class FormulaParser {
   }
 }
 
-function normalizeFunctionName(name) {
-  if(typeof name!=='string')throw new TypeError('Formula function names must be strings');
-  const normalized=name.trim().replace(/^=/,'').toUpperCase();
-  if(!/^[A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)*$/.test(normalized))throw new TypeError(`Invalid formula function name: ${name}`);
-  return normalized;
-}
+const normalizeFunctionName = resolveFormulaName;
 
 export class FormulaEngine {
   constructor(grid) {
@@ -297,67 +310,75 @@ export class FormulaEngine {
     this.dependencies = new Dependencies(this.cache);
     this.locals = [];
     this.functions = {
-      SUM: (...xs) => flatten(xs).reduce((a,v)=>formulaNumber(a+asNumber(v)),0),
-      AVERAGE: (...xs) => { const a=flatten(xs).filter(v=>v!==''&&v!=null); return a.length?a.reduce((s,v)=>formulaNumber(s+asNumber(v)),0)/a.length:0; },
-      AVG: (...xs) => this.functions.AVERAGE(...xs),
-      MIN: (...xs) => Math.min(...flatten(xs).map(asNumber)),
-      MAX: (...xs) => Math.max(...flatten(xs).map(asNumber)),
-      MEDIAN:(...xs)=>{const a=flatten(xs).filter(v=>v!==''&&v!=null).map(formulaNumber).sort((x,y)=>x-y),m=a.length>>1;return a.length?(a.length%2?a[m]:formulaNumber(a[m-1]+a[m])/2):'#NUM!'},
-      LARGE:(array,k)=>{const a=flatten(array).map(asNumber).sort((x,y)=>y-x);return a[asNumber(k)-1]??'#NUM!'}, SMALL:(array,k)=>{const a=flatten(array).map(asNumber).sort((x,y)=>x-y);return a[asNumber(k)-1]??'#NUM!'},
-      COUNT: (...xs) => flatten(xs).filter(v=>v!==''&&v!=null&&!Number.isNaN(Number(v))).length,
+      SUM: (...xs) => sumNumbers(flatten(xs)),
+      AVERAGE: (...xs) => meanNumbers(flatten(xs)),
+      MIN: (...xs) => numericExtreme(flatten(xs),false),
+      MAX: (...xs) => numericExtreme(flatten(xs),true),
+      MEDIAN:(...xs)=>{const a=flatten(xs).filter(v=>!blank(v)).map(numericOperand).sort(compareDecimals),m=a.length>>1;return a.length?(a.length%2?a[m]:divideNumbers(arithmetic('+',a[m-1],a[m]),2)):new FormulaError('#N/A')},
+      LARGE:(array,k)=>{const a=flatten(array).filter(v=>!blank(v)).map(numericOperand).sort((x,y)=>compareDecimals(y,x));return a[textIndex(k)-1]??new FormulaError('#N/A')}, SMALL:(array,k)=>{const a=flatten(array).filter(v=>!blank(v)).map(numericOperand).sort(compareDecimals);return a[textIndex(k)-1]??new FormulaError('#N/A')},
+      COUNT: (...xs) => numericCount(flatten(xs)),
       COUNTA: (...xs) => flatten(xs).filter(v=>v!==''&&v!=null).length,
       COUNTBLANK:(...xs)=>flatten(xs).filter(v=>v===''||v==null).length,
-      ABS: x => Math.abs(asNumber(x)), ROUND: (x,n=0)=>Number(asNumber(x).toFixed(asNumber(n))),
-      ROUNDUP:(x,n=0)=>{const p=10**asNumber(n);return Math.sign(asNumber(x))*Math.ceil(Math.abs(asNumber(x))*p)/p},
-      ROUNDDOWN:(x,n=0)=>{const p=10**asNumber(n);return Math.sign(asNumber(x))*Math.floor(Math.abs(asNumber(x))*p)/p},
-      FLOOR: x => Math.floor(asNumber(x)), CEIL: x => Math.ceil(asNumber(x)), INT:x=>Math.floor(asNumber(x)), SQRT:x=>Math.sqrt(asNumber(x)),
+      ABS: x => Math.abs(asNumber(x)), ROUND:(x,n=0)=>compactDecimal(roundDecimal(numericOperand(x),asNumber(n),'half-up')),
+      ROUNDUP:(x,n=0)=>compactDecimal(roundDecimal(numericOperand(x),asNumber(n),'away-zero')),
+      ROUNDDOWN:(x,n=0)=>compactDecimal(roundDecimal(numericOperand(x),asNumber(n),'toward-zero')),
+      FLOOR: x => Math.floor(asNumber(x)), CEIL: x => Math.ceil(asNumber(x)), SQRT:x=>Math.sqrt(asNumber(x)),
       POW: (a,b)=>Math.pow(asNumber(a),asNumber(b)), MOD:(a,b)=>asNumber(a)%asNumber(b), SIGN:x=>Math.sign(asNumber(x)),
-      IF: (cond,a,b)=>cond?a:b, IFS:(...xs)=>{for(let i=0;i+1<xs.length;i+=2)if(xs[i])return xs[i+1];return '#N/A'},
-      SWITCH:(value,...xs)=>{for(let i=0;i+1<xs.length;i+=2)if(value===xs[i])return xs[i+1];return xs.length%2?xs.at(-1):'#N/A'},
-      CHOOSE:(index,...xs)=>xs[Math.trunc(asNumber(index))-1]??'#VALUE!',
-      IFERROR:(value,fallback)=>isFormulaError(value)?fallback:value, IFNA:(value,fallback)=>value==='#N/A'?fallback:value,
-      AND:(...xs)=>flatten(xs).every(Boolean), OR:(...xs)=>flatten(xs).some(Boolean), XOR:(...xs)=>flatten(xs).filter(Boolean).length%2===1, NOT:x=>!x,
-      TRUE:()=>true,FALSE:()=>false, ISBLANK:x=>x===''||x==null, ISNUMBER:x=>typeof x==='number'&&Number.isFinite(x), ISTEXT:x=>typeof x==='string'&&!isFormulaError(x), ISLOGICAL:x=>typeof x==='boolean', ISERROR:isFormulaError, N:asNumber, VALUE:x=>{try{return formulaNumber(x)}catch(error){return error instanceof RangeError?'#NUM!':'#VALUE!'}},
-      CONCAT: (...xs)=>flatten(xs).join(''), LEN:x=>String(x ?? '').length,
-      TEXTJOIN:(separator,ignoreEmpty,...xs)=>flatten(xs).filter(v=>!ignoreEmpty||v!==''&&v!=null).join(String(separator??'')),
-      UPPER:x=>String(x??'').toUpperCase(), LOWER:x=>String(x??'').toLowerCase(), PROPER:x=>String(x??'').toLocaleLowerCase().replace(/\b\p{L}/gu,c=>c.toLocaleUpperCase()),
-      LEFT:(x,n=1)=>Array.from(String(x??'')).slice(0,Math.max(0,asNumber(n))).join(''),
-      RIGHT:(x,n=1)=>{const count=Math.max(0,Math.trunc(asNumber(n)));return count?Array.from(String(x??'')).slice(-count).join(''):''}, MID:(x,start,n)=>Array.from(String(x??'')).slice(Math.max(0,asNumber(start)-1),Math.max(0,asNumber(start)-1)+Math.max(0,asNumber(n))).join(''),
-      FIND:(needle,haystack,start=1)=>{const i=String(haystack??'').indexOf(String(needle??''),Math.max(0,asNumber(start)-1));return i<0?'#VALUE!':i+1},
-      SEARCH:(needle,haystack,start=1)=>{const i=String(haystack??'').toLocaleLowerCase().indexOf(String(needle??'').toLocaleLowerCase(),Math.max(0,asNumber(start)-1));return i<0?'#VALUE!':i+1},
+      IF: (cond,a,b)=>cond?a:b, IFS:(...xs)=>{for(let i=0;i+1<xs.length;i+=2)if(xs[i])return xs[i+1];return new FormulaError('#N/A')},
+      SWITCH:(value,...xs)=>{for(let i=0;i+1<xs.length;i+=2)if(value===xs[i])return xs[i+1];return xs.length%2?xs.at(-1):new FormulaError('#N/A')},
+      CHOOSE:(index,...xs)=>xs[Math.trunc(asNumber(index))-1]??new FormulaError('#VALUE!'),
+      IFERROR:(value,fallback)=>isFormulaError(value)?fallback:value, IFNA:(value,fallback)=>isFormulaError(value)&&value.code==='#N/A'?fallback:value,
+      AND:(...xs)=>flatten(xs).every(bool), OR:(...xs)=>flatten(xs).some(bool), XOR:(...xs)=>flatten(xs).filter(bool).length%2===1, NOT:x=>!bool(x),
+      TRUE:()=>true,FALSE:()=>false, ISBLANK:x=>x===''||x==null, ISNUMBER:x=>typeof x==='number'&&Number.isFinite(x)||typeof x==='bigint'||x instanceof DecimalValue, ISTEXT:x=>typeof x==='string'&&!isFormulaError(x), ISLOGICAL:x=>typeof x==='boolean', ISERROR:isFormulaError, N:x=>convertNumber(x,true), VALUE:x=>{try{return convertNumber(x)}catch(error){return error instanceof RangeError?new FormulaError('#NUM!'):new FormulaError('#VALUE!')}},
+      CONCAT: (...xs)=>flatten(xs).join(''), LEN:x=>codePoints(x).length,
+      TEXTJOIN:(separator,ignoreEmpty,...xs)=>flatten(xs).filter(v=>!bool(ignoreEmpty)||v!==''&&v!=null).join(String(separator??'')),
+      UPPER:x=>String(x??'').toUpperCase(), LOWER:x=>String(x??'').toLowerCase(), PROPER:x=>String(x??'').toLowerCase().replace(/(^|[^\p{L}\p{M}\p{N}])(\p{L})/gu,(_,prefix,char)=>prefix+char.toUpperCase()),
+      LEFT:(x,n=1)=>codePoints(x).slice(0,textIndex(n,{zero:true})).join(''),
+      RIGHT:(x,n=1)=>{const count=textIndex(n,{zero:true});return count?codePoints(x).slice(-count).join(''):''},
+      MID:(x,start,n)=>codePoints(x).slice(textIndex(start)-1,textIndex(start)-1+textIndex(n,{zero:true})).join(''),
+      FIND:(needle,haystack,start=1)=>findText(needle,haystack,start),
+      SEARCH:(needle,haystack,start=1)=>findText(needle,haystack,start,true),
       SUBSTITUTE:(text,oldText,newText,instance)=>{const s=String(text??''),old=String(oldText??''),replacement=String(newText??'');if(!old)return s;if(instance==null)return s.split(old).join(replacement);let seen=0;return s.replaceAll(old,m=>++seen===asNumber(instance)?replacement:m)},
-      REPLACE:(text,start,count,replacement)=>{const a=Array.from(String(text??'')),i=Math.max(0,asNumber(start)-1);a.splice(i,Math.max(0,asNumber(count)),...Array.from(String(replacement??'')));return a.join('')},
+      REPLACE:(text,start,count,replacement)=>{const a=codePoints(text),i=textIndex(start)-1;a.splice(i,textIndex(count,{zero:true}),...Array.from(String(replacement??'')));return a.join('')},
       TEXT:(value,format)=>{const f=String(format??'General');if(/%/.test(f))return `${(asNumber(value)*100).toFixed((f.split('.')[1]||'').replace(/[^0]/g,'').length)}%`;const decimals=(f.split('.')[1]||'').replace(/[^0#]/g,'').length;return Number.isFinite(Number(value))?formulaNumber(value).toLocaleString(undefined,{minimumFractionDigits:decimals,maximumFractionDigits:decimals}):String(value??'')},
-      SUMIF:(range,criteria,sumRange=range)=>{const a=flatten(range),b=flatten(sumRange);return a.reduce((s,v,i)=>formulaNumber(s+(criteriaMatches(v,criteria)?asNumber(b[i]):0)),0)},
+      SUMIF:(range,criteria,sumRange=range)=>{const a=flatten(range),b=flatten(sumRange);if(a.length!==b.length)return new FormulaError('#VALUE!');return sumNumbers(a.flatMap((v,i)=>criteriaMatches(v,criteria)?[b[i]]:[]));},
       COUNTIF:(range,criteria)=>flatten(range).filter(v=>criteriaMatches(v,criteria)).length,
-      AVERAGEIF:(range,criteria,averageRange=range)=>{const a=flatten(range),b=flatten(averageRange),xs=a.map((v,i)=>criteriaMatches(v,criteria)?b[i]:null).filter(v=>v!==null&&v!==''&&v!=null);return xs.length?xs.reduce((s,v)=>formulaNumber(s+asNumber(v)),0)/xs.length:'#DIV/0!'},
-      SUMIFS:(sumRange,...xs)=>{if(!xs.length||xs.length%2)return '#VALUE!';const sums=flatten(sumRange);return sums.reduce((total,v,i)=>{let ok=true;for(let j=0;j<xs.length;j+=2)if(!criteriaMatches(flatten(xs[j])[i],xs[j+1])){ok=false;break}return formulaNumber(total+(ok?asNumber(v):0))},0)},
-      COUNTIFS:(...xs)=>{if(!xs.length||xs.length%2)return '#VALUE!';const ranges=xs.filter((_,i)=>i%2===0).map(flatten),criteria=xs.filter((_,i)=>i%2===1);return ranges[0].filter((_,i)=>criteria.every((c,j)=>criteriaMatches(ranges[j][i],c))).length},
-      AVERAGEIFS:(averageRange,...xs)=>{if(!xs.length||xs.length%2)return '#VALUE!';const vals=flatten(averageRange),ranges=xs.filter((_,i)=>i%2===0).map(flatten),criteria=xs.filter((_,i)=>i%2===1),hit=vals.filter((v,i)=>criteria.every((c,j)=>criteriaMatches(ranges[j][i],c))&&v!==''&&v!=null);return hit.length?hit.reduce((s,v)=>formulaNumber(s+asNumber(v)),0)/hit.length:'#DIV/0!'},
+      AVERAGEIF:(range,criteria,averageRange=range)=>{const a=flatten(range),b=flatten(averageRange);if(a.length!==b.length)return new FormulaError('#VALUE!');return meanNumbers(a.flatMap((v,i)=>criteriaMatches(v,criteria)?[b[i]]:[]));},
+      SUMIFS:(sumRange,...xs)=>selectAggregate(sumRange,xs,sumNumbers),
+      COUNTIFS:(...xs)=>{if(!xs.length||xs.length%2)return new FormulaError('#VALUE!');const ranges=xs.filter((_,i)=>i%2===0).map(flatten),criteria=xs.filter((_,i)=>i%2===1);if(ranges.some(a=>a.length!==ranges[0].length))return new FormulaError('#VALUE!');return ranges[0].filter((_,i)=>criteria.every((c,j)=>criteriaMatches(ranges[j][i],c))).length;},
+      AVERAGEIFS:(averageRange,...xs)=>selectAggregate(averageRange,xs,meanNumbers),
+      ...createDecimalFunctions(),
       ...createLookupFunctions(),
       ...createExtendedFunctions(),
       ...createTextFunctions(),
+      ...createArrayFunctions(),
       ...createJsonFunctions(),
-      FILTER:(array,include,ifEmpty='')=>{const rows=normalizedRows(array),mask=flatten(include);const out=rows.filter((_,i)=>Boolean(mask[i]));return out.length?out:ifEmpty},
+      FILTER:(array,include,ifEmpty='')=>{const rows=normalizedRows(array),mask=flatten(include);if(mask.length!==rows.length)return new FormulaError('#VALUE!','Filter mask size mismatch');const out=rows.filter((_,i)=>bool(mask[i]));return out.length?out:ifEmpty},
       UNIQUE:array=>{const rows=normalizedRows(array),seen=new Set();return rows.filter(row=>{const k=JSON.stringify(row);if(seen.has(k))return false;seen.add(k);return true})},
-      SORT:(array,index=1,order=1)=>{const rows=normalizedRows(array),col=Math.max(0,Math.trunc(asNumber(index))-1),direction=asNumber(order)<0?-1:1;return [...rows].sort((a,b)=>{const x=a[col],y=b[col];return (typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''),undefined,{numeric:true,sensitivity:'base'}))*direction})},
-      SEQUENCE:(rows=1,columns=1,start=1,step=1)=>{const r=clamp(Math.trunc(asNumber(rows)),0,10000),c=clamp(Math.trunc(asNumber(columns)),0,10000);if(r*c>100000)return '#NUM!';return Array.from({length:r},(_,ri)=>Array.from({length:c},(_,ci)=>asNumber(start)+(ri*c+ci)*asNumber(step)))},
+      SORT:(array,index=1,order=1)=>{const rows=normalizedRows(array),col=textIndex(index)-1,direction=asNumber(order);if(![1,-1].includes(direction)||rows.some(row=>col>=row.length))return new FormulaError('#VALUE!','Invalid sort column/order');return [...rows].sort((a,b)=>{const x=a[col],y=b[col];return (typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''),undefined,{numeric:true,sensitivity:'base'}))*direction})},
+      SEQUENCE:(rows=1,columns=1,start=1,step=1)=>{const r=textIndex(rows,{zero:true}),c=textIndex(columns,{zero:true});if(r>10000||c>10000||r*c>100000)return new FormulaError('#NUM!');return Array.from({length:r},(_,ri)=>Array.from({length:c},(_,ci)=>asNumber(start)+(ri*c+ci)*asNumber(step)))},
       TRANSPOSE:array=>{const rows=normalizedRows(array);return rows[0].map((_,c)=>rows.map(row=>row[c]??''))},
       ROWS:array=>normalizedRows(array).length, COLUMNS:array=>normalizedRows(array)[0]?.length||0,
       HSTACK:(...arrays)=>{const matrices=arrays.map(normalizedRows),rows=Math.max(0,...matrices.map(a=>a.length));return Array.from({length:rows},(_,r)=>matrices.flatMap(a=>a[r]||Array(a[0]?.length||1).fill('')))},
       VSTACK:(...arrays)=>arrays.flatMap(a=>normalizedRows(a)),
-      SUMPRODUCT:(...arrays)=>{const values=arrays.map(flatten),length=Math.max(0,...values.map(a=>a.length));return Array.from({length},(_,i)=>values.reduce((product,a)=>formulaNumber(product*asNumber(a[i])),1)).reduce((sum,n)=>formulaNumber(sum+n),0)},
+      SUMPRODUCT:(...arrays)=>{const values=arrays.map(flatten);if(!values.length||values.some(a=>a.length!==values[0].length))return new FormulaError('#VALUE!');return sumNumbers(values[0].map((_,i)=>values.reduce((product,a)=>arithmetic('*',product,a[i]),1)));},
       MAP:(array,lambda)=>{const rows=normalizedRows(array);return rows.map(row=>[lambda(...row)])},
       REDUCE:(initial,array,lambda)=>flatten(array).reduce((acc,value)=>lambda(acc,value),initial),
       SCAN:(initial,array,lambda)=>flatten(array).reduce((out,value)=>{const prev=out.length?out.at(-1)[0]:initial;out.push([lambda(prev,value)]);return out},[]),
       BYROW:(array,lambda)=>normalizedRows(array).map(row=>[lambda(row)]),
-      MAKEARRAY:(rows,columns,lambda)=>{const r=clamp(Math.trunc(asNumber(rows)),0,10000),c=clamp(Math.trunc(asNumber(columns)),0,10000);if(r*c>100000)return '#NUM!';return Array.from({length:r},(_,ri)=>Array.from({length:c},(_,ci)=>lambda(ri+1,ci+1)))},
-      TODAY: ()=>new Date(new Date().setHours(0,0,0,0)), NOW:()=>new Date(), DATE:(y,m,d)=>new Date(asNumber(y),asNumber(m)-1,asNumber(d)),
-      YEAR:x=>new Date(x).getFullYear(), MONTH:x=>new Date(x).getMonth()+1, DAY:x=>new Date(x).getDate(), DATEVALUE:x=>{const d=new Date(x);return Number.isNaN(d.valueOf())?'#VALUE!':d},
-      HOUR:x=>new Date(x).getHours(), MINUTE:x=>new Date(x).getMinutes(), SECOND:x=>new Date(x).getSeconds(), DAYS:(end,start)=>Math.round((new Date(end)-new Date(start))/86400000),
-      PI:()=>Math.PI, EXP:x=>Math.exp(asNumber(x)), LN:x=>Math.log(asNumber(x)), LOG:(x,base=10)=>Math.log(asNumber(x))/Math.log(asNumber(base)), POWER:(a,b)=>Math.pow(asNumber(a),asNumber(b))
+      PIVOT:(...args)=>PivotEngine.fromArray(...args),
+      MAKEARRAY:(rows,columns,lambda)=>{const r=textIndex(rows,{zero:true}),c=textIndex(columns,{zero:true});if(r>10000||c>10000||r*c>100000)return new FormulaError('#NUM!');return Array.from({length:r},(_,ri)=>Array.from({length:c},(_,ci)=>lambda(ri+1,ci+1)))},
+      PI:()=>Math.PI, EXP:x=>Math.exp(asNumber(x)), LN:x=>Math.log(asNumber(x)), LOG:(x,base=10)=>Math.log(asNumber(x))/Math.log(asNumber(base))
     };
+    Object.assign(this.functions, createCalendarFunctions(()=>new Date(this.dependencies.cycleTime)), createColorFunctions());
+    // Keep exactly one callback per ID. Non-enumerable accessors preserve direct
+    // legacy/translated access, including when the canonical callback is replaced.
+    this.functions=Object.fromEntries(Object.entries(this.functions).filter(([name])=>resolveFormulaName(name)===name));
     this._builtInFunctions=new Map(Object.entries(this.functions));
+    for(const definition of formulaCatalog)for(const alias of definition.aliases){
+      if(alias===definition.id)continue;
+      Object.defineProperty(this.functions,alias,{configurable:true,get:()=>this.functions[definition.id],set:fn=>{this.functions[definition.id]=fn;}});
+    }
     this._customFunctions=new Set();
     this.registerFunctions(grid.options?.functions ?? {});
   }
@@ -388,10 +409,10 @@ export class FormulaEngine {
       const result=fn(...args);
       if(result&&typeof result.then==='function'){
         Promise.resolve(result).catch(()=>{});
-        return '#ERROR! Custom formula functions must return synchronously';
+        return new FormulaError('#ERROR! Custom formula functions must return synchronously');
       }
       return wrapResult(checkedResult(result));
-    } catch(error) { return error instanceof RangeError?'#NUM!':error instanceof TypeError?'#VALUE!':`#ERROR! ${error instanceof Error?error.message:String(error)}`; }
+    } catch(error) { return error instanceof RangeError?new FormulaError('#NUM!'):error instanceof TypeError?new FormulaError('#VALUE!'):new FormulaError(`#ERROR! ${error instanceof Error?error.message:String(error)}`); }
   }
   clearCache() { this.dependencies.clear(); }
   // ---- dynamic arrays -------------------------------------------------------
@@ -456,7 +477,7 @@ export class FormulaEngine {
     for(const line of matrix)while(line.length<cols)line.push('');
     const info={row,col,rows,cols,matrix,owner:grid},limit=grid.options?.maxSpillCells??100000;
     const problem=rows*cols>limit?'Result too large':this._blocker(origin,info);
-    if(problem){this.clearSpill(origin);dep.blocked.set(origin,{...info,matrix:null,message:problem});return `#SPILL! ${problem}`}
+    if(problem){this.clearSpill(origin);dep.blocked.set(origin,{...info,matrix:null,message:problem});return new FormulaError(`#SPILL! ${problem}`)}
     const old=dep.spills.get(origin);dep.blocked.delete(origin);
     const same=old&&old.row===row&&old.col===col&&old.rows===rows&&old.cols===cols;
     dep.spills.set(origin,info);
@@ -472,46 +493,41 @@ export class FormulaEngine {
     }
     return matrix[0][0];
   }
-  evaluateFormula(formula, visiting = new Set()) {
+  evaluateFormula(formula,visiting=new Set()){return displayFormulaResult(this.evaluateValue(formula,visiting));}
+  evaluateValue(formula, visiting = new Set()) {
     try {
       const tokens = new FormulaTokenizer(formula.replace(/^=/,'')).tokenize();
       const ast = new FormulaParser(tokens).parse();
       return checkedResult(this.evalNode(ast, visiting));
-    } catch (e) { return e instanceof RangeError?'#NUM!':e instanceof TypeError?'#VALUE!':`#ERROR! ${e.message}`; }
+    } catch (e) { return e instanceof RangeError?new FormulaError('#NUM!'):e instanceof TypeError?new FormulaError('#VALUE!'):new FormulaError(`#ERROR! ${e.message}`); }
   }
   applyBinary(op,a,b) {
         if(isFormulaError(a))return a;if(isFormulaError(b))return b;
-        if(a instanceof JSONValue||b instanceof JSONValue){
-          if(['=','==','<>','!='].includes(op)){const same=a instanceof JSONValue&&b instanceof JSONValue&&jsonEquals(a.value,b.value);return op==='='||op==='=='?same:!same}
-          if(['<','>','<=','>='].includes(op)){const x=String(a??''),y=String(b??'');return op==='<'?x<y:op==='>'?x>y:op==='<='?x<=y:x>=y}
-        }
         if(['=','==','<>','!=','<','>','<=','>='].includes(op)){
-          const convert=(text,other)=>{
-            if(typeof text!=='string'||!['number','bigint'].includes(typeof other))return text;
-            const parsed=parseNumericValue(text);if(parsed.lossy)throw new RangeError('Comparison would lose precision');
-            return parsed.numeric?parsed.value:text;
-          };
-          a=convert(a,b);b=convert(b,a);
+          if(a instanceof JSONValue||b instanceof JSONValue){if(!['=','==','<>','!='].includes(op))throw new TypeError('JSON values are not ordered');const same=a instanceof JSONValue&&b instanceof JSONValue&&jsonEquals(a.value,b.value);return op==='='||op==='=='?same:!same;}
+          const order=compareScalars(a,b);if(op==='='||op==='==')return order===0;if(op==='<>'||op==='!=')return order!==0;
+          if(order===null)throw new TypeError('Cannot order different value types');return op==='<'?order<0:op==='>'?order>0:op==='<='?order<=0:order>=0;
         }
         switch(op){
-          case '+': return formulaNumber(formulaNumber(a)+formulaNumber(b)); case '-': return formulaNumber(formulaNumber(a)-formulaNumber(b));
-          case '*': return formulaNumber(formulaNumber(a)*formulaNumber(b)); case '/': return formulaNumber(b)===0?'#DIV/0!':formulaNumber(formulaNumber(a)/formulaNumber(b));
-          case '%': return formulaNumber(formulaNumber(a)%formulaNumber(b)); case '^': return formulaNumber(Math.pow(formulaNumber(a),formulaNumber(b))); case '&': return String(a??'')+String(b??'');
+          case '+': return arithmetic('+',a,b); case '-': return arithmetic('-',a,b);
+          case '*': return arithmetic('*',a,b); case '/': return divideNumbers(a,b);
+          case '%': return compareDecimals(numericOperand(b),0)===0?new FormulaError('#DIV/0!'):arithmetic('%',a,b); case '^': return formulaNumber(Math.pow(formulaNumber(a),formulaNumber(b))); case '&': return String(a??'')+String(b??'');
           case '=': case '==': return a==b; case '<>': case '!=': return a!=b; case '<': return a<b; case '>': return a>b; case '<=': return a<=b; case '>=': return a>=b;
         }
   }
   evalNode(n, visiting) {
     switch (n.type) {
       case 'literal': return n.value;
-      case 'sheetref':{const sheets=this.grid.feature?.('worksheets');return sheets?sheets.read(n.sheet,parseA1(n.name),visiting):'#REF!'}
-      case 'spillref':{const p=parseA1(n.target.name);return this.grid.getSpill?this.grid.getSpill(p.row,p.col,visiting):this.grid.getComputedValue(p.row,p.col,visiting)}
+      case 'sheetref':{const sheets=this.grid.feature?.('worksheets');return sheets?sheets.read(n.sheet,parseA1(n.name),visiting):new FormulaError('#REF!')}
+      case 'spillref':{const p=parseA1(n.target.name);return this.grid.getSpill?this.grid.getSpill(p.row,p.col,visiting):(this.grid.getCalculationValue??this.grid.getComputedValue).call(this.grid,p.row,p.col,visiting)}
       case 'ident': {
         const upper = n.name.toUpperCase();
-        if (upper === 'TRUE'||upper==='WAHR') return true;
-        if (upper === 'FALSE'||upper==='FALSCH') return false;
+        const booleanName=/^[\p{L}_][\p{L}\p{M}0-9_.]*$/u.test(upper)?resolveFormulaName(upper):upper;
+        if (booleanName === 'TRUE') return true;
+        if (booleanName === 'FALSE') return false;
         for(let i=this.locals.length-1;i>=0;i--)if(Object.hasOwn(this.locals[i],upper))return this.locals[i][upper];
         if (/^\$?[A-Z]+\$?\d+$/.test(upper)) {
-          const p = parseA1(upper); return this.grid.getComputedValue(p.row,p.col,visiting);
+          const p = parseA1(upper); return (this.grid.getCalculationValue??this.grid.getComputedValue).call(this.grid,p.row,p.col,visiting);
         }
         const key = n.name.startsWith('@') ? n.name.slice(1) : n.name;
         this.dependencies.read(`external:${key}`);
@@ -520,67 +536,100 @@ export class FormulaEngine {
         if (this.grid.variables.has(key)) {
           const v = this.grid.variables.get(key);
           if(typeof v !== 'string'||!v.startsWith('='))return v;
-          const variableKey=this.grid._calculationKey?.(`@${key}`)??`@${key}`;if(visiting.has(variableKey))return '#CYCLE!';
-          visiting.add(variableKey);try{return this.evaluateFormula(v,visiting)}finally{visiting.delete(variableKey)}
+          const variableKey=this.grid._calculationKey?.(`@${key}`)??`@${key}`;if(visiting.has(variableKey))return new FormulaError('#CYCLE!');
+          visiting.add(variableKey);try{return this.evaluateValue(v,visiting)}finally{visiting.delete(variableKey)}
         }
-        return `#NAME? ${n.name}`;
+        return new FormulaError(`#NAME? ${n.name}`);
       }
       case 'range': {
-        if(!['ident','sheetref'].includes(n.left.type)||!['ident','sheetref'].includes(n.right.type))return '#RANGE!';
-        const a=parseA1(n.left.name),b=parseA1(n.right.name);if(!a||!b)return '#RANGE!';
+        if(!['ident','sheetref'].includes(n.left.type)||!['ident','sheetref'].includes(n.right.type))return new FormulaError('#RANGE!');
+        const a=parseA1(n.left.name),b=parseA1(n.right.name);if(!a||!b)return new FormulaError('#RANGE!');
         const leftSheet=n.left.sheet,rightSheet=n.right.sheet;
-        if(rightSheet&&!leftSheet)return '#RANGE!';
+        if(rightSheet&&!leftSheet)return new FormulaError('#RANGE!');
         const sheets=this.grid.feature?.('worksheets');
-        if(rightSheet&&sheets?.resolve(leftSheet)!==sheets?.resolve(rightSheet))return '#RANGE!';
+        if(rightSheet&&sheets?.resolve(leftSheet)!==sheets?.resolve(rightSheet))return new FormulaError('#RANGE!');
         const rr=normalizeRange(a,b),out=[];
-        for(let r=rr.r1;r<=rr.r2;r++){const row=[];for(let c=rr.c1;c<=rr.c2;c++)row.push(leftSheet?(sheets?sheets.read(leftSheet,{row:r,col:c},visiting):'#REF!'):this.grid.getComputedValue(r,c,visiting));out.push(row)}
+        for(let r=rr.r1;r<=rr.r2;r++){const row=[];for(let c=rr.c1;c<=rr.c2;c++)row.push(leftSheet?(sheets?sheets.read(leftSheet,{row:r,col:c},visiting):new FormulaError('#REF!')):(this.grid.getCalculationValue??this.grid.getComputedValue).call(this.grid,r,c,visiting));out.push(row)}
         return out;
       }
-      case 'unary': { const raw=this.evalNode(n.expr,visiting);if(isFormulaError(raw))return raw;if(Array.isArray(raw))return broadcast([raw],x=>{if(isFormulaError(x))return x;try{const v=formulaNumber(x);return n.op==='-'?-v:v}catch(error){return elementError(error)}});const v=formulaNumber(raw); return n.op==='-'?-v:v; }
+      case 'unary': { const raw=this.evalNode(n.expr,visiting);if(isFormulaError(raw))return raw;if(Array.isArray(raw))return broadcast([raw],x=>{if(isFormulaError(x))return x;try{const v=numericOperand(x);return n.op==='-'?arithmetic('*',v,-1):v}catch(error){return elementError(error)}});const v=numericOperand(raw); return n.op==='-'?arithmetic('*',v,-1):v; }
       case 'binary': {
         const a=this.evalNode(n.left,visiting), b=this.evalNode(n.right,visiting);
         if(Array.isArray(a)||Array.isArray(b))return broadcast([a,b],(x,y)=>{try{return this.applyBinary(n.op,x,y)}catch(error){return elementError(error)}});
         return this.applyBinary(n.op,a,b);
       }
       case 'call': {
+        n={...n,name:resolveFormulaName(n.name)};
         if(this._customFunctions.has(n.name))return this._callCustomFunction(n.name,n.args.map(arg=>this.evalNode(arg,visiting)));
+        if(n.name==='PIVOT'){
+          if(n.args.length<3||n.args.length>6)return new FormulaError('#VALUE!');
+          const options=n.args.slice(1).map(arg=>this.evalNode(arg,visiting));
+          const error=options.flatMap(flattenPlain).find(isFormulaError);if(error)return error;
+          const scope=String(options[4]??'all').toLowerCase();
+          if(!['all','visible'].includes(scope))return new FormulaError('#VALUE!');
+          const source=n.args[0];let array;
+          if(source.type==='range'){
+            if(!['ident','sheetref'].includes(source.left.type)||!['ident','sheetref'].includes(source.right.type))return new FormulaError('#REF!');
+            const a=parseA1(source.left.name),b=parseA1(source.right.name);
+            if(!a||!b)return new FormulaError('#REF!');
+            const range=normalizeRange(a,b),sheets=this.grid.feature?.('worksheets'),sheet=source.left.sheet;
+            if(sheet||source.right.sheet)this.dependencies.read('worksheets:names');
+            if(source.right.sheet&&(!sheet||sheets?.resolve(sheet)!==sheets?.resolve(source.right.sheet)))return new FormulaError('#REF!');
+            if(sheet&&!sheets?.resolve(sheet))return new FormulaError('#REF!');
+            if((range.r2-range.r1+1)*(range.c2-range.c1+1)>100000)return new FormulaError('#NUM!');
+            if(scope==='visible'&&!sheet)this.dependencies.read(this.grid._calculationKey('visibility'));
+            array=[];
+            for(let row=range.r1;row<=range.r2;row++){
+              if(scope==='visible'&&row>range.r1&&!(sheet?sheets.isRowVisible(sheet,row,range.c1):this.grid.isTableRowVisible(row,range.c1)))continue;
+              const values=[];
+              for(let col=range.c1;col<=range.c2;col++)values.push(sheet?sheets.read(sheet,{row,col},visiting):(this.grid.getCalculationValue??this.grid.getComputedValue).call(this.grid,row,col,visiting));
+              array.push(values);
+            }
+          }else{
+            if(scope==='visible')return new FormulaError('#VALUE!');
+            array=this.evalNode(source,visiting);
+          }
+          return PivotEngine.fromArray(array,...options.slice(0,4));
+        }
         if(n.name==='IF'){
-          if(n.args.length<2||n.args.length>3)return '#VALUE!';const condition=this.evalNode(n.args[0],visiting);if(isFormulaError(condition))return condition;
-          if(Array.isArray(condition)){const yes=this.evalNode(n.args[1],visiting),no=n.args.length===3?this.evalNode(n.args[2],visiting):false;return broadcast([condition,yes,no],(test,a,b)=>isFormulaError(test)?test:test?a:b)}
-          if(condition)return this.evalNode(n.args[1],visiting);return n.args.length===3?this.evalNode(n.args[2],visiting):false;
+          if(n.args.length<2||n.args.length>3)return new FormulaError('#VALUE!');const condition=this.evalNode(n.args[0],visiting);if(isFormulaError(condition))return condition;
+          if(Array.isArray(condition)){const yes=this.evalNode(n.args[1],visiting),no=n.args.length===3?this.evalNode(n.args[2],visiting):false;return broadcast([condition,yes,no],(test,a,b)=>isFormulaError(test)?test:bool(test)?a:b)}
+          if(bool(condition))return this.evalNode(n.args[1],visiting);return n.args.length===3?this.evalNode(n.args[2],visiting):false;
         }
         if(n.name==='IFERROR'||n.name==='IFNA'){
-          if(n.args.length!==2)return '#VALUE!';const value=this.evalNode(n.args[0],visiting);
-          return n.name==='IFERROR'?isFormulaError(value)?this.evalNode(n.args[1],visiting):value:value==='#N/A'?this.evalNode(n.args[1],visiting):value;
+          if(n.args.length!==2)return new FormulaError('#VALUE!');const value=this.evalNode(n.args[0],visiting);
+          return n.name==='IFERROR'?isFormulaError(value)?this.evalNode(n.args[1],visiting):value:isFormulaError(value)&&value.code==='#N/A'?this.evalNode(n.args[1],visiting):value;
         }
-        if(n.name==='ISERROR')return n.args.length===1?isFormulaError(this.evalNode(n.args[0],visiting)):'#VALUE!';
+        if(n.name==='ISERROR')return n.args.length===1?isFormulaError(this.evalNode(n.args[0],visiting)):new FormulaError('#VALUE!');
         if(n.name==='AND'||n.name==='OR'){
-          for(const arg of n.args){const value=this.evalNode(arg,visiting);if(isFormulaError(value))return value;const values=flatten(value);if(n.name==='AND'&&values.some(v=>!v))return false;if(n.name==='OR'&&values.some(Boolean))return true}
+          for(const arg of n.args){const value=this.evalNode(arg,visiting);if(isFormulaError(value))return value;const values=flatten(value);if(n.name==='AND'&&values.some(v=>!bool(v)))return false;if(n.name==='OR'&&values.some(bool))return true}
           return n.name==='AND';
         }
         if(n.name==='IFS'){
-          if(!n.args.length||n.args.length%2)return '#VALUE!';for(let i=0;i<n.args.length;i+=2){const condition=this.evalNode(n.args[i],visiting);if(isFormulaError(condition))return condition;if(condition)return this.evalNode(n.args[i+1],visiting)}return '#N/A';
+          if(!n.args.length||n.args.length%2)return new FormulaError('#VALUE!');for(let i=0;i<n.args.length;i+=2){const condition=this.evalNode(n.args[i],visiting);if(isFormulaError(condition))return condition;if(bool(condition))return this.evalNode(n.args[i+1],visiting)}return new FormulaError('#N/A');
         }
         if(n.name==='SWITCH'){
-          if(n.args.length<3)return '#VALUE!';const value=this.evalNode(n.args[0],visiting),hasDefault=n.args.length%2===0,pairEnd=n.args.length-(hasDefault?1:0);
-          for(let i=1;i<pairEnd;i+=2){const candidate=this.evalNode(n.args[i],visiting);if(candidate===value)return this.evalNode(n.args[i+1],visiting)}
-          return hasDefault?this.evalNode(n.args.at(-1),visiting):'#N/A';
+          if(n.args.length<3)return new FormulaError('#VALUE!');const value=this.evalNode(n.args[0],visiting),hasDefault=n.args.length%2===0,pairEnd=n.args.length-(hasDefault?1:0);
+          for(let i=1;i<pairEnd;i+=2){const candidate=this.evalNode(n.args[i],visiting);if(isFormulaError(candidate))return candidate;if(this.applyBinary('=',candidate,value))return this.evalNode(n.args[i+1],visiting)}
+          return hasDefault?this.evalNode(n.args.at(-1),visiting):new FormulaError('#N/A');
         }
         if(n.name==='LET'){
-          if(n.args.length<3||n.args.length%2===0)return '#VALUE!';
+          if(n.args.length<3||n.args.length%2===0)return new FormulaError('#VALUE!');
           const scope={};this.locals.push(scope);
           try{
-            for(let i=0;i<n.args.length-1;i+=2){const binding=n.args[i];if(binding.type!=='ident'||/^\$?[A-Z]+\$?\d+$/i.test(binding.name))return '#NAME?';scope[binding.name.toUpperCase()]=this.evalNode(n.args[i+1],visiting)}
+            for(let i=0;i<n.args.length-1;i+=2){const binding=n.args[i];if(binding.type!=='ident'||/^\$?[A-Z]+\$?\d+$/i.test(binding.name))return new FormulaError('#NAME?');scope[binding.name.toUpperCase()]=this.evalNode(n.args[i+1],visiting)}
             return this.evalNode(n.args.at(-1),visiting);
           }finally{this.locals.pop()}
         }
         if(n.name==='LAMBDA'){
-          if(n.args.length<2||n.args.slice(0,-1).some(p=>p.type!=='ident'||/^\$?[A-Z]+\$?\d+$/i.test(p.name)))return '#VALUE!';
+          if(n.args.length<2||n.args.slice(0,-1).some(p=>p.type!=='ident'||/^\$?[A-Z]+\$?\d+$/i.test(p.name)))return new FormulaError('#VALUE!');
           const params=n.args.slice(0,-1).map(p=>p.name.toUpperCase()),body=n.args.at(-1),engine=this;
           const lambda=(...values)=>{const scope={};params.forEach((name,i)=>scope[name]=values[i]??'');engine.locals.push(scope);try{return engine.evalNode(body,visiting)}finally{engine.locals.pop()}};
           lambda.__tinyLambda=true;return lambda;
         }
-        const fn=this.functions[n.name]; if(!fn) return `#NAME? ${n.name}`;
+        const fn=this.functions[n.name]; if(!fn) return new FormulaError(`#NAME? ${n.name}`);
+        const definition=formulaDefinition(n.name);if(definition&&(n.args.length<definition.arity.min||n.args.length>definition.arity.max))return new FormulaError('#VALUE!','Incorrect argument count');
+        if(definition?.volatile)this.dependencies.read('volatile:cycle');
         const args=n.args.map(x=>this.evalNode(x,visiting));
         if(LIFTED.has(n.name)&&args.some(Array.isArray))return broadcast(args,(...items)=>{const error=items.find(isFormulaError);return error??this._invokeFunction(fn,items)});
         const lookupFunctions=['MATCH','XMATCH','VLOOKUP','HLOOKUP','XLOOKUP','LOOKUP','SVERWEIS','WVERWEIS','XVERWEIS','VERGLEICH','VERWEIS'];
@@ -594,6 +643,33 @@ export class FormulaEngine {
 }
 
 export class PivotEngine {
+  /** Header-first array to a spillable pivot; also available without sheetPivots. */
+  static fromArray(source,rowField,valueField,aggregate='SUM',columnField='') {
+    if(isFormulaError(source))return source;
+    if(!Array.isArray(source)||!source.length||!Array.isArray(source[0])||!source[0].length)return new FormulaError('#VALUE!');
+    const width=source[0].length;
+    if(source.length*width>100000)return new FormulaError('#NUM!');
+    if(source.some(row=>!Array.isArray(row)||row.length!==width))return new FormulaError('#VALUE!');
+    const headerError=source[0].find(isFormulaError);if(headerError)return headerError;
+    const headers=source[0].map(v=>String(v??''));
+    if(headers.some(h=>!h.trim())||new Set(headers).size!==headers.length)return new FormulaError('#VALUE!');
+    if(typeof rowField!=='string'||typeof valueField!=='string'||typeof columnField!=='string')return new FormulaError('#VALUE!');
+    const mode=String(aggregate).toLowerCase();
+    if(!['sum','count','counta','avg','average','min','max','first','last'].includes(mode))return new FormulaError('#VALUE!');
+    if(![rowField,valueField,...(columnField?[columnField]:[])].every(field=>headers.includes(field)))return new FormulaError('#REF!');
+    const records=[],rows=new Set(),columns=new Set();
+    for(const values of source.slice(1)){
+      if(values.every(v=>v===''||v==null))continue;
+      const record=Object.fromEntries(headers.map((h,i)=>[h,values[i]]));
+      const error=[record[rowField],...(columnField?[record[columnField]]:[])].find(isFormulaError);if(error)return error;
+      rows.add(String(record[rowField]??''));columns.add(columnField?String(record[columnField]??''):'');
+      if((rows.size+1)*(columns.size+1)>100000)return new FormulaError('#NUM!');
+      records.push(record);
+    }
+    if(!records.length)return [[rowField,...(columnField?[]:[valueField])]];
+    return this.pivot(records,{rows:[rowField],columns:columnField?[columnField]:[],values:[{field:valueField,aggregate:mode}]}).toTable();
+  }
+
   static pivot(data, config={}) {
     const rowFields=config.rows||[], colFields=config.columns||[], valueDefs=(config.values||[]).map(v=>typeof v==='string'?{field:v,aggregate:'sum'}:v);
     const filters=config.filters||{};
@@ -609,18 +685,15 @@ export class PivotEngine {
     }
     const agg=(vals,type)=>{
       const mode=(type||'sum').toLowerCase();
-      if(mode==='count')return vals.length;
+      if(mode==='count')return numericCount(vals);
       if(mode==='counta')return vals.filter(v=>v!==''&&v!=null).length;
       if(mode==='first')return vals[0]??null;
       if(mode==='last')return vals.at(-1)??null;
       try{
         const error=vals.find(isFormulaError);if(error)return error;
-        const nums=vals.filter(v=>v!==''&&v!=null).map(formulaNumber);
-        if(mode==='min')return nums.length?Math.min(...nums):null;
-        if(mode==='max')return nums.length?Math.max(...nums):null;
-        const sum=nums.reduce((a,b)=>formulaNumber(a+b),0);
-        return checkedResult(mode==='avg'||mode==='average'?nums.length?sum/nums.length:0:sum);
-      }catch(error){return error instanceof RangeError?'#NUM!':'#VALUE!'}
+        if(mode==='min'||mode==='max')return numericExtreme(vals,mode==='max');
+        return mode==='avg'||mode==='average'?meanNumbers(vals):sumNumbers(vals);
+      }catch(error){return error instanceof RangeError?new FormulaError('#NUM!'):new FormulaError('#VALUE!')}
     };
     const matrix=rowKeys.map(rk=>colKeys.map(ck=>{
       const b=cells.get(rk+'\u001E'+ck)||{}; const out={};
@@ -708,9 +781,12 @@ export class TinyDatagrid {
   }
   feature(name){return this._features.get(name)}
   removePlugin(name){const feature=this._features.get(name);if(!feature)return false;feature.destroy?.();this._features.delete(name);this.render();return true}
-  _validateWrite(key,value){
+  _validateWrite(key,value,nextType){
     this.feature('pivots')?.beforeWrite(key);
-    if(this._restoring)return;const validator=this.feature('validation');if(!validator)return;
+    if(this._restoring)return;
+    const previous=this.cells.get(key),previousFormula=previous?.valueType!=='text'&&typeof previous?.raw==='string'&&previous.raw.startsWith('=');
+    if(this.options.protectFormulas&&!this._allowFormulaReplacement&&previousFormula&&!(nextType!=='text'&&typeof value==='string'&&value.startsWith('='))){const [row,col]=key.split(',').map(Number),message='Diese Zelle enthält eine Formel. Nutze „Formel durch Wert ersetzen“, um sie bewusst zu entfernen.';const error=new Error(message);error.validation={row,col,value,message};this._lastWriteError=message;throw error;}
+    const validator=this.feature('validation');if(!validator)return;
     const [row,col]=key.split(',').map(Number),message=validator.validate(row,col,value);
     if(message){const error=new Error(message);error.validation={row,col,value,message};throw error}
   }
@@ -787,7 +863,7 @@ export class TinyDatagrid {
   }
   _cloneSQLBinding(binding){return binding?{...binding,columns:[...binding.columns],keyColumns:[...binding.keyColumns],editableColumns:binding.editableColumns?[...binding.editableColumns]:null,seenCursors:new Set(binding.seenCursors||[]),sqlRowIds:new Map(binding.sqlRowIds),originalRows:new Map(binding.originalRows),inserted:new Set(binding.inserted),deleted:new Map(binding.deleted)}:null}
   _snapshot(){return {tables:this.listTables(),visualizations:structuredClone(this.visualizations),pivotTables:structuredClone(this.pivotTables),validationRules:structuredClone(this.validationRules),variables:new Map(this.variables),cells:new Map(this.cells),rowCount:this.rowCount,colCount:this.colCount,rowHeights:[...this.rowHeights],colWidths:[...this.colWidths],hiddenColumns:new Set(this.hiddenColumns),hiddenRows:new Set(this.hiddenRows),sheetName:this.sheetName,freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),sqlBinding:this._cloneSQLBinding(this.sqlBinding)}}
-  _recordHistory(){if((this.historyLimit||this.feature('validation')||this.feature('conditionalFormatting')||this.feature('pivots'))&&!this._historyBefore)this._historyBefore=this._snapshot()}
+  _recordHistory(){if((this.historyLimit||this.options.protectFormulas||this.feature('validation')||this.feature('conditionalFormatting')||this.feature('pivots'))&&!this._historyBefore)this._historyBefore=this._snapshot()}
   _finishHistory(){
     if(this._historyDepth||!this._historyBefore)return;
     const before=this._historyBefore;this._historyBefore=null;
@@ -844,19 +920,23 @@ export class TinyDatagrid {
   isCellReadOnly(row,col){if(this.feature('pivots')&&this.getCell(row,col).pivotOwner)return true;if(this.readOnly)return true;if(!this.sqlBinding)return false;if(row===this.sqlBinding.headerRow||!this.sqlBinding.keyColumns.length)return true;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];if(!column)return true;return Boolean(column.readOnly||column.primaryKey||this.sqlBinding.keyColumns.includes(column.name)||(this.sqlBinding.editableColumns&&!this.sqlBinding.editableColumns.includes(column.name)))}
   _coerceSQLValue(col,value){if(!this.sqlBinding||typeof value!=='string'||value.startsWith('='))return value;const column=this.sqlBinding.columns[col-this.sqlBinding.startCol];return coerceDataValue(value,{type:column?.type||'unknown',locale:this.options.dataLocale||'en-US'})}
   setCell(row,col,value,meta={}){value=unwrapCellValue(value);const originalInput=value;if(this.sqlBinding&&this.isCellReadOnly(row,col))return false;value=this._coerceSQLValue(col,value);this._recordHistory();const grew=this.ensureSize(row+1,col+1);const k=this.key(row,col);const old=this.cells.get(k)||{};this.cells.set(k,{...old,...meta,raw:value,originalInput});this._growTable(row,col,value);this._updateFilteredRows();this.emit('change',{row,col,value});if(grew||this.table)this.render();else this.renderCells();return true}
+  replaceFormulaWithValue(row,col,value=this.getCalculationValue(row,col)){const previous=this._allowFormulaReplacement;this._allowFormulaReplacement=true;try{return this.setCell(row,col,value);}finally{this._allowFormulaReplacement=previous;}}
+  getCalculationState({settle=true}={}){if(settle)this.engine.settle();const dep=this.engine.dependencies;return {phase:dep.stack.length?'calculating':dep.dirtyAll||dep.dirty.size?'pending':'ready',revision:dep.cycle,calculatedAt:new Date(dep.cycleTime).toISOString(),errors:[...this.engine.cache].filter(([key,value])=>this._ownKey(key)!=null&&isFormulaError(value)).length};}
+  getCellInfo(row,col){const raw=this.getRawValue(row,col),original=this.getOriginalValue(row,col),value=this.getCalculationValue(row,col),cell=this.getCell(row,col),display=this.formatValue(value,cell.numberFormat);return {address:toA1(row,col),raw,original,value:displayFormulaResult(value),exact:rawText(value),display,type:isFormulaError(value)?'error':value instanceof DecimalValue?'decimal':value instanceof CalendarDate?'date':value instanceof ClockTime?'time':value instanceof DurationValue?'duration':value instanceof Date?'datetime':typeof value,error:isFormulaError(value)?{code:value.code,message:value.message}:null,formula:cell.valueType!=='text'&&typeof raw==='string'&&raw.startsWith('='),displayDiffers:!isFormulaError(value)&&(['number','bigint'].includes(typeof value)||value instanceof DecimalValue)?String(display)!==rawText(value):false};}
   getCell(row,col){return this.cells.get(this.key(row,col))||{raw:''}}
   getOriginalValue(row,col){this.getRawValue(row,col);const cell=this.getCell(row,col);return Object.hasOwn(cell,'originalInput')?cell.originalInput:this.getRawValue(row,col)}
   getRawValue(row,col){this.engine?.dependencies.read(this._calculationKey(this.key(row,col)));const cell=this.getCell(row,col);return Object.hasOwn(cell,'raw')?cell.raw:''}
-  getComputedValue(row,col,visiting=new Set()){
+  getComputedValue(row,col,visiting=new Set()){return displayFormulaResult(this.getCalculationValue(row,col,visiting));}
+  getCalculationValue(row,col,visiting=new Set()){
     const pivotError=this.feature('pivots')?.beforeRead(row,col);if(pivotError)return pivotError;
     const dep=this.engine.dependencies;if((dep.dirtyAll||dep.dirty.size)&&!dep.stack.length)this.engine.settle();
-    const k=this._calculationKey(this.key(row,col));dep.read(k);if(this.engine.cache.has(k)) return this.engine.cache.get(k); if(visiting.has(k)) return '#CYCLE!';
+    const k=this._calculationKey(this.key(row,col));dep.read(k);if(this.engine.cache.has(k)) return this.engine.cache.get(k); if(visiting.has(k)) return new FormulaError('#CYCLE!');
     dep.begin(k);visiting.add(k);try{const raw=this.getRawValue(row,col); let out=raw;
     const cell=this.getCell(row,col),type=cell.valueType||this.options.columnTypes?.[col]||this.sqlBinding?.columns[col-this.sqlBinding.startCol]?.type;
     const registered=(dep.spills.size||dep.blocked.size)&&(dep.spills.has(k)||dep.blocked.has(k)),literalText=/^(text|string|char|character|varchar|nvarchar|nchar|uuid|citext|enum|clob|ntext)\b/i.test(type||''),formula=!literalText&&typeof raw==='string'&&raw.startsWith('=');
     if(registered&&!formula)this.engine.clearSpill(k);
     if(literalText)out=wrapCellValue(raw);
-    else if(formula){out=this.engine.evaluateFormula(raw,visiting);if(Array.isArray(out))out=this.engine.spillResult(k,row,col,out);else if(registered)this.engine.clearSpill(k)}
+    else if(formula){out=this.engine.evaluateValue(raw,visiting);if(Array.isArray(out))out=this.engine.spillResult(k,row,col,out);else if(registered)this.engine.clearSpill(k)}
     else if((raw===''||raw==null)&&dep.covered.size&&dep.covered.has(k))out=this._spillValue(k,row,col,visiting);
     else if(type)out=wrapCellValue(coerceDataValue(raw,{type,locale:this.options.dataLocale||'en-US'}));
     else{const info=inferDataValue(raw,{locale:this.options.dataLocale||'en-US',dateParsing:this.options.dateParsing??'iso'});out=info.type==='json'?wrapCellValue(info.value):info.value}
@@ -871,15 +951,15 @@ export class TinyDatagrid {
   _spillValue(k,row,col,visiting){
     const dep=this.engine.dependencies,origin=dep.covered.get(k),info=origin&&dep.spills.get(origin);
     if(!info)return '';
-    if(visiting.has(origin))return '#CYCLE!';
-    this.getComputedValue(info.row,info.col,visiting);
+    if(visiting.has(origin))return new FormulaError('#CYCLE!');
+    this.getCalculationValue(info.row,info.col,visiting);
     const fresh=dep.spills.get(origin);
     if(!fresh||dep.covered.get(k)!==origin)return '';
     return fresh.matrix[row-fresh.row]?.[col-fresh.col]??'';
   }
   /** The whole result of the formula in a cell (A1#), or a one-cell range for ordinary cells. */
   getSpill(row,col,visiting=new Set()){
-    const value=this.getComputedValue(row,col,visiting);
+    const value=this.getCalculationValue(row,col,visiting);
     if(isFormulaError(value))return value;
     const info=this.engine.dependencies.spills.get(this._calculationKey(this.key(row,col)));
     return info?info.matrix.map(line=>line.slice()):[[value]];
@@ -1033,7 +1113,7 @@ export class TinyDatagrid {
   exportWorkbook({values=true,formulas=true,formatting=true,dimensions=true,computedValues=true}={}){
     const cells=[];
     for(const [key,meta] of this.cells){const [row,col]=key.split(',').map(Number),raw=meta.raw;const cell={row,col};
-      if(meta.valueType!=='text'&&typeof raw==='string'&&raw.startsWith('=')){if(formulas)cell.formula=raw;if(values&&computedValues)cell.value=toPortableValue(this.getComputedValue(row,col))}else if(values&&raw!==''&&raw!=null)cell.value=toPortableValue(raw);
+      if(meta.valueType!=='text'&&typeof raw==='string'&&raw.startsWith('=')){if(formulas)cell.formula=raw;if(values&&computedValues)cell.value=toPortableValue(this.getCalculationValue(row,col))}else if(values&&raw!==''&&raw!=null)cell.value=toPortableValue(raw);
       if(formatting){if(meta.numberFormat!=null)cell.numberFormat=meta.numberFormat;if(meta.style)cell.style={...meta.style};if(meta.className)cell.className=meta.className}
       if(meta.pivotOwner)cell.pivotOwner=meta.pivotOwner;
       if(values&&meta.valueType)cell.valueType=meta.valueType;
@@ -1043,7 +1123,7 @@ export class TinyDatagrid {
     if(!formulas&&values&&computedValues)for(const info of this.getSpillRanges())for(let r=info.row;r<info.row+info.rows;r++)for(let c=info.col;c<info.col+info.cols;c++)if(r!==info.row||c!==info.col)cells.push({row:r,col:c,value:toPortableValue(this.getComputedValue(r,c))});
     const dims=dimensions?{rows:this.rowCount,columns:this.colCount,rowHeights:[...this.rowHeights],columnWidths:[...this.colWidths],hiddenRows:[...this.hiddenRows].sort((a,b)=>a-b),hiddenColumns:[...this.hiddenColumns].sort((a,b)=>a-b)}:undefined;
     const sheet={id:'sheet1',name:this.sheetName,activeTableId:this._activeTableId,tables:this.listTables(),visualizations:structuredClone(this.visualizations),cells,variables:toPortableValue(Object.fromEntries(this.variables)),...(dims?{dimensions:dims}:{}),freezePanes:{...this.freezePanes},conditionalFormats:structuredClone(this.conditionalFormats),validationRules:structuredClone(this.validationRules),pivotTables:structuredClone(this.pivotTables),table:this.table?{...this.table,filters:undefined}:null,filters:[...this.columnFilters].map(([column,values])=>({column,values:[...values]}))};
-    const workbook={format:'tinyDatagrid-workbook',version:2,activeSheetId:'sheet1',sheets:[sheet],cells,variables:sheet.variables};
+    const workbook={format:'tinyDatagrid-workbook',version:2,formulaModel:'structured-v1',activeSheetId:'sheet1',sheets:[sheet],cells,variables:sheet.variables};
     if(dims)workbook.dimensions=dims;
     return workbook;
   }
@@ -1056,6 +1136,7 @@ export class TinyDatagrid {
   importShareHash(hash=globalThis.location?.hash){return this.importWorkbook(decodeSharePayload(hash),{replace:true})}
   importWorkbook(input,{replace=true,startRow=0,startCol=0,values=true,formulas=true,formatting=true,dimensions=true}={}){
     const workbook=typeof input==='string'?parseDataJSON(input):input;
+    if(workbook?.formulaModel&&workbook.formulaModel!=='structured-v1')throw new TypeError('Unsupported formula model');
     if(!workbook||workbook.format!=='tinyDatagrid-workbook')throw new TypeError('Workbook JSON must use the tinyDatagrid-workbook format');
     const activeSheet=Array.isArray(workbook.sheets)?(workbook.sheets.find(sheet=>sheet.id===workbook.activeSheetId)||workbook.sheets[0]):null;
     const payload=activeSheet||workbook;if(!Array.isArray(payload.cells))throw new TypeError('Workbook sheet must contain a cells array');
@@ -1111,6 +1192,7 @@ export class TinyDatagrid {
     for(const table of this._tables){for(let row=table.headerRow+1;row<=table.r2;row++){
       if(!this.isTableRowVisible(row,table.c1)&&!this.hiddenRows.has(row)&&!this._tables.some(other=>other!==table&&row>=other.r1&&row<=other.r2))this.filteredRows.add(row);
     }}
+    this.engine.dependencies.invalidate(this._calculationKey('visibility'),new Set(this.engine.dependencies.stack));
     this.feature('pivots')?.invalidateVisibility?.();
   }
   setColumnFilter(col,values){if(!this.table||col<this.table.c1||col>this.table.c2)return false;this._recordHistory();if(values==null)this.columnFilters.delete(col);else this.columnFilters.set(col,new Set([...values].map(String)));this._updateFilteredRows();this.layout();this.emit('filter',{column:col,values:values==null?null:[...this.columnFilters.get(col)],rows:[...this.filteredRows]});return true}
@@ -1130,8 +1212,8 @@ export class TinyDatagrid {
   setFreezePanes({rows=this.freezePanes.rows,columns=this.freezePanes.columns}={}){this.freezePanes={rows:clamp(Math.trunc(rows)||0,0,this.rowCount-1),columns:clamp(Math.trunc(columns)||0,0,this.colCount-1)};this.render();this.emit('freezepanes',{...this.freezePanes});return this}
   setConditionalFormats(rules=[]){if(!Array.isArray(rules))throw new TypeError('Conditional formatting rules must be an array');this.feature('conditionalFormatting')?.checkRules(rules);this.conditionalFormats=structuredClone(rules);this.renderCells();this.emit('conditionalformats',{rules:this.conditionalFormats});return this}
   shiftFormula(formula,dr,dc){
-    const strings=[];const masked=formula.replace(/"(?:""|[^"])*"|'(?:''|[^'])*'(?=\s*!)|[A-Za-z_][A-Za-z0-9_.]*(?=\s*!)/g,s=>{strings.push(s);return `\u0000${strings.length-1}\u0000`});
-    return masked.replace(/(^|[^A-Z0-9_@.])(\$?)([A-Z]+)(\$?)(\d+)(?![A-Z0-9_.]|\s*\()/gi,(m,prefix,ac,col,ar,row)=>{const nc=ac?nameToCol(col):Math.max(0,nameToCol(col)+dc);const nr=ar?Number(row)-1:Math.max(0,Number(row)-1+dr);return `${prefix}${ac}${colToName(nc)}${ar}${nr+1}`}).replace(/\u0000(\d+)\u0000/g,(_,i)=>strings[Number(i)]);
+    const strings=[];const masked=formula.replace(/"(?:""|[^"])*"|'(?:''|[^'])*'(?=\s*!)|[\p{L}_][\p{L}\p{M}0-9_.]*(?=\s*!)/gu,s=>{strings.push(s);return `\u0000${strings.length-1}\u0000`});
+    return masked.replace(/(^|[^\p{L}\p{M}0-9_@.])(\$?)([A-Z]+)(\$?)(\d+)(?![\p{L}\p{M}0-9_.]|\s*\()/giu,(m,prefix,ac,col,ar,row)=>{const nc=ac?nameToCol(col):Math.max(0,nameToCol(col)+dc);const nr=ar?Number(row)-1:Math.max(0,Number(row)-1+dr);return `${prefix}${ac}${colToName(nc)}${ar}${nr+1}`}).replace(/\u0000(\d+)\u0000/g,(_,i)=>strings[Number(i)]);
   }
   _fillBounds(source,target){
     const src={r1:Math.min(source.r1,source.r2),c1:Math.min(source.c1,source.c2),r2:Math.max(source.r1,source.r2),c2:Math.max(source.c1,source.c2)};
@@ -1413,14 +1495,14 @@ export class TinyDatagrid {
       if(this.virtualization&&(!this.displayRowHeights[r]||!this.displayColWidths[c]))continue;
       const table=this.tableAt(r,c);if(table&&r>table.headerRow&&!this.isTableRowVisible(r,c))continue;
       const d=document.createElement('div');d.className='tg-cell';d.dataset.row=r;d.dataset.col=c;d.id=`${this._gridId}-cell-${r}-${c}`;d.setAttribute('role','gridcell');d.setAttribute('aria-colindex',String(c+1));d.draggable=false;d.style.left=this.colOffsets[c]+'px';d.style.top=(this.rowOffsets[r]-this._scrollY()+this.scroll.scrollTop)+'px';d.style.width=this.displayColWidths[c]+'px';d.style.height=this.displayRowHeights[r]+'px';if(this.hiddenColumns.has(c))d.classList.add('tg-hidden-column');if(this.hiddenRows.has(r)||this.filteredRows.has(r))d.classList.add('tg-hidden-row');
-      const v=this.getComputedValue(r,c);const meta=this.getCell(r,c);
+      const v=this.getCalculationValue(r,c);const meta=this.getCell(r,c);
       if(spills.covered.size||spills.spills.size){const calc=this._calculationKey(this.key(r,c)),origin=spills.spills.has(calc)?calc:spills.covered.get(calc),area=origin&&spills.spills.get(origin);if(area){d.classList.add('tg-spilled');if(r===area.row)d.classList.add('tg-spill-t');if(r===area.row+area.rows-1)d.classList.add('tg-spill-b');if(c===area.col)d.classList.add('tg-spill-l');if(c===area.col+area.cols-1)d.classList.add('tg-spill-r')}}
       if(meta.pivotOwner)this._markPivotCell(d,meta,r,c);
       if(table&&r===table.headerRow){d.classList.add('tg-table-header');const label=document.createElement('span');label.className='tg-table-header-label';label.textContent=this.formatValue(v,meta.numberFormat);const trigger=document.createElement('button');trigger.type='button';trigger.className='tg-filter-trigger';trigger.dataset.filterColumn=c;trigger.dataset.tableId=table.id;trigger.tabIndex=-1;trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-label',`${this.t('filter')} ${label.textContent}`);trigger.textContent=table.filters.has(c)?'▾•':'▾';d.append(label,trigger)}else d.textContent=this.formatValue(v,meta.numberFormat);
-      if(v instanceof JSONValue){d.classList.add('tg-json',v.isArray?'tg-json-array':'tg-json-object');d.title=v.toString().slice(0,400)}else if(typeof v==='string'&&v[0]==='#'&&isFormulaError(v)){d.classList.add('tg-error');d.title=v}if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);const conditional=this.feature('conditionalFormatting');if(conditional)Object.assign(d.style,conditional.cellStyle(r,c,v));const invalid=this.feature('validation')?.validate(r,c,this.getRawValue(r,c));if(invalid){d.setAttribute('aria-invalid','true');d.title=invalid;d.classList.add('tg-invalid')}if(this.feature('validation')?.listValues?.(r,c)){d.classList.add('tg-has-list');d.setAttribute('aria-haspopup','listbox')}if(table&&table.style==='banded'&&r>table.headerRow&&(r-table.headerRow)%2===0)d.classList.add('tg-table-banded');rowElement.append(d);
+      if(v instanceof JSONValue){d.classList.add('tg-json',v.isArray?'tg-json-array':'tg-json-object');d.title=v.toString().slice(0,400)}else if(isFormulaError(v)){d.classList.add('tg-error');d.title=String(v)}if(typeof v==='number')d.classList.add('tg-number');if(meta.numberFormat==='currency'||meta.numberFormat?.type==='currency')d.classList.add('tg-currency');if(meta.className)d.classList.add(meta.className);if(meta.style)Object.assign(d.style,meta.style);const conditional=this.feature('conditionalFormatting');if(conditional)Object.assign(d.style,conditional.cellStyle(r,c,v));const invalid=this.feature('validation')?.validate(r,c,this.getRawValue(r,c));if(invalid){d.setAttribute('aria-invalid','true');d.title=invalid;d.classList.add('tg-invalid')}if(this.feature('validation')?.listValues?.(r,c)){d.classList.add('tg-has-list');d.setAttribute('aria-haspopup','listbox')}if(table&&table.style==='banded'&&r>table.headerRow&&(r-table.headerRow)%2===0)d.classList.add('tg-table-banded');rowElement.append(d);
       }
     }
-    this.canvas.append(frag);this._syncFrozenCells();this.syncHeaders();this.updateSelectionOverlay();
+    this.canvas.append(frag);this._syncFormulaReferenceHighlight();this._syncFrozenCells();this.syncHeaders();this.updateSelectionOverlay();
   }
   /** Classes and hint for a cell that belongs to a pivot result: the outline follows the result's edges. */
   _markPivotCell(d,meta,r,c){
@@ -1438,6 +1520,10 @@ export class TinyDatagrid {
     table.r2=row;
   }
   formatValue(value,format){
+    if(value instanceof FormulaError)return String(value);
+    if(value instanceof DecimalValue)return formatDecimal(value,format,this.locale);
+    if(value instanceof CalendarDate)return value.toLocaleDateString(this.locale);
+    if(value instanceof ClockTime||value instanceof DurationValue)return String(value);
     if(value instanceof JSONValue)return value.toString();
     if(value instanceof Date)return value.toLocaleString(this.locale);
     if(value instanceof ArrayBuffer||ArrayBuffer.isView(value))return `[Binary ${value.byteLength} bytes]`;
@@ -1513,11 +1599,64 @@ export class TinyDatagrid {
     if(col>=frozen.columns){if(left<this.scroll.scrollLeft+this.colOffsets[frozen.columns])this.scroll.scrollLeft=left-this.colOffsets[frozen.columns];else if(right>this.scroll.scrollLeft+this.scroll.clientWidth)this.scroll.scrollLeft=right-this.scroll.clientWidth;}
   }
   edit(row=this.selection.r2,col=this.selection.c2,initial=null){
+    if(this.editor)delete this.editor._tgReference;
     if(this.isCellReadOnly(row,col)){const pivot=initial==null&&this.getCell(row,col).pivotOwner;if(pivot)this.emit('editblocked',{row,col,pivot});return false}
     const left=this.options.headerWidth+this._viewOffset(col,'columns'),top=this.options.headerHeight+this._viewOffset(row,'rows');
     this.editor.style.left=left+'px';this.editor.style.top=top+'px';this.editor.style.width=this.displayColWidths[col]+'px';this.editor.style.height=this.displayRowHeights[row]+'px';this.editor.setAttribute('aria-label',`${toA1(row,col)} · ${this.t('editor')}`);this.editor.value=initial??rawText(this.getRawValue(row,col));this.editor.style.display='block';this.editor.style.visibility='visible';this.editor.style.height=Math.min(240,Math.max(this.displayRowHeights[row],this.editor.scrollHeight))+'px';this.editor.focus({preventScroll:true});if(initial==null)this.editor.select();else this.editor.setSelectionRange(this.editor.value.length,this.editor.value.length);this._editing={row,col};
   }
-  commitEdit(cancel=false){if(!this._editing)return;if(!cancel&&!this.isCellReadOnly(this._editing.row,this._editing.col)){const {row,col}=this._editing;if(this.setCell(row,col,this.editor.value)===false){this.editor.setCustomValidity(this.feature('validation')?.validate(row,col,this.editor.value)||'Invalid value');this.editor.reportValidity();return false}}this.editor.setCustomValidity('');this._editing=null;this.editor.style.display='none';this.el.focus({preventScroll:true})}
+  commitEdit(cancel=false){if(!this._editing)return;if(!cancel&&!this.isCellReadOnly(this._editing.row,this._editing.col)){const {row,col}=this._editing;if(this.setCell(row,col,this.editor.value)===false){this.editor.setCustomValidity(this._lastWriteError||this.feature('validation')?.validate(row,col,this.editor.value)||'Invalid value');this.editor.reportValidity();return false}}this.editor.setCustomValidity('');this._editing=null;this.editor.style.display='none';this.el.focus({preventScroll:true})}
+  // Keep reference picking separate from the selected cell and uncommitted value.
+  _formulaReferenceContext(input=this.editor){
+    if(!input||input.readOnly||!input.value.startsWith('='))return null;
+    const start=input.selectionStart,end=input.selectionEnd,state=input._tgReference;
+    if(state&&state.value===input.value&&start===state.end&&end===start)return state;
+    const prefix=input.value.slice(0,start);
+    // Quoted text (including escaped quotes) must retain ordinary caret movement.
+    if(prefix.replace(/""/g,'').split('"').length%2===0)return null;
+    if(!/[=(:,;!+\-*/^&<>]\s*$/.test(prefix))return null;
+    return {start,end,row:(this._editing||this.anchor).row,col:(this._editing||this.anchor).col};
+  }
+  _pickFormulaReference(row,col,input=this.editor,extend=false){
+    const state=this._formulaReferenceContext(input);if(!state)return false;
+    row=clamp(row,0,this.rowCount-1);col=clamp(col,0,this.colCount-1);
+    const first=extend?(state.first||{row:state.row,col:state.col}):{row,col};
+    const reference=toA1(first.row,first.col)+(first.row!==row||first.col!==col?':'+toA1(row,col):'');
+    input.value=input.value.slice(0,state.start)+reference+input.value.slice(state.end);
+    input.setSelectionRange(state.start+reference.length,state.start+reference.length);
+    input._tgReference={start:state.start,end:state.start+reference.length,row,col,first,value:input.value};
+    this._formulaReferenceHighlight={input,start:state.start,end:state.start+reference.length,reference,r1:Math.min(first.row,row),r2:Math.max(first.row,row),c1:Math.min(first.col,col),c2:Math.max(first.col,col)};
+    if(input._tgReferenceHighlightGrid!==this&&input.addEventListener){
+      input._tgReferenceHighlightGrid=this;
+      this._listen(input,'blur',()=>this._clearFormulaReferenceHighlight(input));
+      this._listen(input,'input',()=>{const range=this._formulaReferenceHighlight;if(range?.input===input&&input.value.slice(range.start,range.end)!==range.reference)this._clearFormulaReferenceHighlight(input)});
+    }
+    this.scrollToCell(row,col);input.focus({preventScroll:true});
+    this._syncFormulaReferenceHighlight();
+    input.dispatchEvent(new Event('input',{bubbles:true}));return true;
+  }
+  _clearFormulaReferenceHighlight(input){
+    if(input&&this._formulaReferenceHighlight?.input!==input)return;
+    this._formulaReferenceHighlight=null;this._syncFormulaReferenceHighlight();
+  }
+  _syncFormulaReferenceHighlight(){
+    const range=this._formulaReferenceHighlight;
+    for(const cell of this.canvas?.querySelectorAll?.('.tg-cell')||[]){
+      const row=+cell.dataset.row,col=+cell.dataset.col;
+      const selected=Boolean(range&&row>=range.r1&&row<=range.r2&&col>=range.c1&&col<=range.c2);
+      cell.classList.toggle('tg-formula-reference',selected);
+    }
+  }
+  _moveFormulaReference(event,input=this.editor){
+    if(event.isComposing||event.defaultPrevented||event.ctrlKey||event.metaKey||event.altKey)return false;
+    const delta={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]}[event.key];
+    const state=delta&&this._formulaReferenceContext(input);if(!state)return false;
+    let row=state.row+delta[0],col=state.col+delta[1];
+    while(row>=0&&row<this.rowCount&&!this.displayRowHeights[row])row+=delta[0]||1;
+    while(col>=0&&col<this.colCount&&!this.displayColWidths[col])col+=delta[1]||1;
+    event.preventDefault();
+    if(row>=0&&row<this.rowCount&&col>=0&&col<this.colCount)this._pickFormulaReference(row,col,input,event.shiftKey);
+    return true;
+  }
   copySelection(){
     const rows=this.toArray(this.selection,false),dep=this.engine.dependencies;
     if(dep.covered.size){const r1=Math.min(this.selection.r1,this.selection.r2),c1=Math.min(this.selection.c1,this.selection.c2);rows.forEach((line,i)=>line.forEach((value,j)=>{if(value===''&&dep.covered.has(this._calculationKey(this.key(r1+i,c1+j))))line[j]=this.getComputedValue(r1+i,c1+j)}))}
@@ -1548,13 +1687,13 @@ export class TinyDatagrid {
     this._listen(this.autofillMenu,'focusout',e=>{if(!this.autofillMenu.hidden&&!this.autofillMenu.contains(e.relatedTarget))this._closeAutofillMenu(true)});
     const filterInput=e=>{if(e.target.matches('.tg-filter-search')){const query=e.target.value.toLocaleLowerCase();this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{box.closest('.tg-filter-option').hidden=!box.dataset.filterValue.toLocaleLowerCase().includes(query)})}else if(e.target.matches('[data-select-all]'))this.filterMenu.querySelectorAll('[data-filter-value]').forEach(box=>{if(!box.closest('.tg-filter-option').hidden)box.checked=e.target.checked});this._syncFilterSelectAll()};this._listen(this.filterMenu,'input',filterInput);this._listen(this.filterMenu,'change',filterInput);
     this._listen(this.canvas,'click',e=>{const trigger=e.target.closest('.tg-filter-trigger');if(trigger){e.preventDefault();e.stopPropagation();this._openFilterMenu(+trigger.dataset.filterColumn,trigger)}});
-    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0||e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(!cell)return;this.el.focus({preventScroll:true});const row=+cell.dataset.row,col=+cell.dataset.col;this.select(row,col,e.shiftKey);if(e.pointerType==='touch'){this._touchBegin(e,row,col);return}this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
+    this._listen(this.canvas,'pointerdown',e=>{if(e.button!==0||e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell');if(!cell)return;const row=+cell.dataset.row,col=+cell.dataset.col;if(this._editing&&this._formulaReferenceContext()){e.preventDefault();this._pickFormulaReference(row,col,this.editor,e.shiftKey);return}this.el.focus({preventScroll:true});this.select(row,col,e.shiftKey);if(e.pointerType==='touch'){this._touchBegin(e,row,col);return}this._selectDrag={pointerId:e.pointerId};this.canvas.setPointerCapture(e.pointerId);e.preventDefault()});
     this._listen(this.canvas,'pointermove',e=>{if(this._touchMove(e))return;if(!this._selectDrag||e.pointerId!==this._selectDrag.pointerId)return;const p=this.getCellAtClient(e.clientX,e.clientY);this.select(p.row,p.col,true)});
     this._listen(this.canvas,'pointerup',e=>{this._touchEnd(e,true);if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
     this._listen(this.canvas,'pointercancel',e=>{this._touchEnd(e,false);if(this._selectDrag?.pointerId===e.pointerId)this._selectDrag=null});
     this._listen(this.canvas,'touchmove',e=>{if(this._touch?.range&&e.cancelable)e.preventDefault()},{passive:false});
     // A mouse press captures the pointer on the canvas, so the browser reports the canvas (not the cell) as the target.
-    this._listen(this.canvas,'dblclick',e=>{if(e.target.closest('.tg-filter-trigger'))return;const cell=e.target.closest('.tg-cell'),at=cell?{row:+cell.dataset.row,col:+cell.dataset.col}:this.getCellAtClient(e.clientX,e.clientY);this.edit(at.row,at.col)});
+    this._listen(this.canvas,'dblclick',e=>{if(e.target.closest('.tg-filter-trigger')||(this._editing&&this._formulaReferenceContext()))return;const cell=e.target.closest('.tg-cell'),at=cell?{row:+cell.dataset.row,col:+cell.dataset.col}:this.getCellAtClient(e.clientX,e.clientY);this.edit(at.row,at.col)});
     this._listen(this.fillHandle,'dblclick',e=>{e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
     this._listen(this.fillHandle,'keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();e.stopPropagation();this.fillDownToContiguousData()});
     this._listen(this.fillHandle,'pointerdown',e=>{if(this.readOnly)return;e.preventDefault();e.stopPropagation();this._fillState={source:{...this.selection},target:{...this.selection}};this.fillHandle.setPointerCapture(e.pointerId)});
@@ -1575,6 +1714,7 @@ export class TinyDatagrid {
     headerPress(this.rowHeaders,'.tg-rowhead','tg-resize-y',(header,event)=>this._openRowMenu(+header.dataset.row,event));
     this._listen(this.editor,'keydown',e=>{
       if(e.isComposing||e.defaultPrevented)return;
+      if(this._moveFormulaReference(e))return;
       if((e.key==='Enter'&&!e.shiftKey)||e.key==='Tab'){
         e.preventDefault();
         const direction=e.key==='Tab'?(e.shiftKey?'left':'right'):((e.ctrlKey||e.metaKey)?'up':'down');
@@ -1606,7 +1746,7 @@ export class TinyDatagrid {
 // SQL record deletion, autofit) become one undo step; rendering/events can run
 // during the operation, but the final history event fires only after completion.
 for(const name of [
-  'saveVisualization','removeVisualization','setValidationRules','setCell','setVariable','setSheetName','clearSelection','styleSelection','formatSelection',
+  'saveVisualization','removeVisualization','setValidationRules','replaceFormulaWithValue','setCell','setVariable','setSheetName','clearSelection','styleSelection','formatSelection',
   'setRowHeight','setColumnWidth','hideRow','showAllRows','insertRow','deleteRow','clearRow','autoFitRow',
   'hideColumn','showAllColumns','insertColumn','deleteColumn','clearColumn','autoFitColumn',
   'load','loadRecords','loadResultSet','appendResultPage','insertRecord','deleteRecord',

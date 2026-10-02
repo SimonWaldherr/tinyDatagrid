@@ -119,6 +119,22 @@
     "./simulations": {
       "types": "./src/simulations.d.ts",
       "import": "./src/simulations.js"
+    },
+    "./formula-catalog": {
+      "types": "./src/formula-catalog.d.ts",
+      "import": "./src/formula-catalog.js"
+    },
+    "./values": {
+      "types": "./src/values.d.ts",
+      "import": "./src/values.js"
+    },
+    "./form-generator": {
+      "types": "./src/form-generator.d.ts",
+      "import": "./src/form-generator.js"
+    },
+    "./form-ui": {
+      "types": "./src/form-ui.d.ts",
+      "import": "./src/form-ui.js"
     }
   },
   "files": [
@@ -131,8 +147,9 @@
     "**/*.css"
   ],
   "scripts": {
-    "test": "node test.mjs && node test-functions.mjs && node test-data-types.mjs && node test-json.mjs && node test-arrays.mjs && node test-find.mjs && node test-editor-layout.mjs && node test-worksheets.mjs && node test-data-tools.mjs && node test-pivots.mjs && node test-rules.mjs",
+    "test": "node test/test-form-generator.mjs && node test/test-excel-safety.mjs && node test/test-formula-catalog.mjs && node scripts/formula-overview.mjs --check && node test/test.mjs && node test/test-functions.mjs && node test/test-calendar-colors.mjs && node test/test-data-types.mjs && node test/test-json.mjs && node test/test-arrays.mjs && node test/test-find.mjs && node test/test-editor-layout.mjs && node test/test-sheet-growth.mjs && node test/test-worksheets.mjs && node test/test-data-tools.mjs && node test/test-pivots.mjs && node test/test-rules.mjs",
     "benchmark": "node benchmarks/recalculation.mjs",
-    "benchmark:large": "node --max-old-space-size=2048 benchmarks/large-grid.mjs"
+    "benchmark:large": "node --max-old-space-size=2048 benchmarks/large-grid.mjs",
+    "docs:formulas": "node scripts/formula-overview.mjs"
   }
 }

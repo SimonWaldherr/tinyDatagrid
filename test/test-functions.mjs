@@ -1,21 +1,21 @@
 import assert from 'node:assert/strict';
-import TinyDatagrid, { FormulaEngine } from './src/tinygrid.js';
+import TinyDatagrid, { FormulaEngine } from '../src/tinygrid.js';
 
 const input = new Map([['0,0','  MARCH1  '], ['1,0',3], ['2,0',4]]);
 const engine = new FormulaEngine({variables:new Map(),getComputedValue:(r,c)=>input.get(`${r},${c}`)??''});
 engine.registerFunctions({
   '=LTRIM': value=>String(value??'').trimStart(),
   'math.total': rows=>rows.flat().reduce((sum,value)=>sum+value,0),
-  TAG: (value,prefix='gene:')=>prefix+value,
+  LABEL: (value,prefix='gene:')=>prefix+value,
   F1: value=>value*2
 });
 assert.equal(engine.evaluateFormula('=ltrim(A1)'), 'MARCH1  ');
-assert.equal(engine.evaluateFormula('=TAG(LTRIM(A1); "symbol:")'), 'symbol:MARCH1  ');
+assert.equal(engine.evaluateFormula('=LABEL(LTRIM(A1); "symbol:")'), 'symbol:MARCH1  ');
 assert.equal(engine.evaluateFormula('=MATH.TOTAL(A2:A3)'), 7);
 assert.equal(engine.evaluateFormula('=F1(5)'), 10);
 assert.equal(engine.evaluateFormula('=LTRIM("  🧬  ")'), '🧬  ');
 assert.equal(engine.evaluateFormula('=SUM(MATH.TOTAL(A2:A3),1)'), 8);
-assert.equal(new FormulaEngine({variables:new Map()}).evaluateFormula('=TAG("x"; "prefix:")'), '#NAME? TAG');
+assert.equal(new FormulaEngine({variables:new Map()}).evaluateFormula('=LABEL("x"; "prefix:")'), '#NAME? LABEL');
 assert.throws(()=>engine.registerFunctions({VALID:()=>1,INVALID:'return 2'}), TypeError);
 assert.equal(engine.evaluateFormula('=VALID()'), '#NAME? VALID');
 assert.throws(()=>engine.registerFunctions({'a':()=>1,'=A':()=>2}), TypeError);

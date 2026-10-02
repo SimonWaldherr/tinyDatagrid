@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import TinyDatagrid from './src/tinygrid.js';
-import { findDuplicateRows, removeDuplicateRows, cleanSpaces, trimSpaces, splitText, splitTextToColumns } from './src/data-tools.js';
+import TinyDatagrid from '../src/tinygrid.js';
+import { findDuplicateRows, removeDuplicateRows, cleanSpaces, trimSpaces, splitText, splitTextToColumns } from '../src/data-tools.js';
 
 class ModelGrid extends TinyDatagrid {
   build() {} bind() {} setLocale(locale) { this.locale = locale; return this; } render() { this._updateFilteredRows(); this.engine.settle(); } renderCells() {} layout() { this._updateFilteredRows(); } emit() {}
