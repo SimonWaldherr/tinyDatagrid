@@ -1,1 +1,1 @@
-export { installCharts } from '../src/charts.js';
+export { installCharts } from "../src/charts.js";

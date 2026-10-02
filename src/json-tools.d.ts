@@ -1,5 +1,5 @@
-import type { TinyDatagrid, CellRange } from './tinygrid.js';
-import type { JSONQueryResult } from './json-values.js';
+import type { TinyDatagrid, CellRange } from "./tinygrid.js";
+import type { JSONQueryResult } from "./json-values.js";
 
 export type JSONToolsOptions = {
   grid: TinyDatagrid;

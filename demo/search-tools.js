@@ -1,1 +1,1 @@
-export { installSearch } from '../src/search-tools.js';
+export { installSearch } from "../src/search-tools.js";

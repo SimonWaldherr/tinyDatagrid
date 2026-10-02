@@ -1,12 +1,22 @@
-import { formulaHelpRows } from './formula-help-data.js';
+import { formulaHelpRows } from "./formula-help-data.js";
 
 // One record per operation. Translations resolve to IDs before evaluation;
 // they never create another implementation or rewrite formula text literals.
 const legacy = {
-  AVG:'AVERAGE', POWER:'POW', INT:'FLOOR', SUBSTRING:'SUBSTR',
-  REGEXTEST:'REGEXP', REGEXMATCH:'REGEXP', REGEXEXTRACT:'REGEXP_EXTRACT', REGEXREPLACE:'REGEXP_REPLACE',
-  SVERWEIS:'VLOOKUP', WVERWEIS:'HLOOKUP', XVERWEIS:'XLOOKUP', VERGLEICH:'MATCH', VERWEIS:'LOOKUP',
-  WEBSERVICE:'WEB.GET'
+  AVG: "AVERAGE",
+  POWER: "POW",
+  INT: "FLOOR",
+  SUBSTRING: "SUBSTR",
+  REGEXTEST: "REGEXP",
+  REGEXMATCH: "REGEXP",
+  REGEXEXTRACT: "REGEXP_EXTRACT",
+  REGEXREPLACE: "REGEXP_REPLACE",
+  SVERWEIS: "VLOOKUP",
+  WVERWEIS: "HLOOKUP",
+  XVERWEIS: "XLOOKUP",
+  VERGLEICH: "MATCH",
+  VERWEIS: "LOOKUP",
+  WEBSERVICE: "WEB.GET",
 };
 // EN segment | DE | FR | IT. Technical standards (JSON, RGB, SHA256, …)
 // deliberately keep their established spelling across languages.
@@ -244,53 +254,240 @@ WEB|WEB|WEB|WEB
 STATUS|STATUS|STATUT|STATO
 MANDELBROT|MANDELBROT|MANDELBROT|MANDELBROT
 `;
-const words = new Map(translations.trim().split('\n').map(row => { const [en,de,fr,it]=row.split('|');return [en,{en,de,fr,it}]; }));
-export const formulaLanguages = Object.freeze(['de','en','fr','it']);
-export function formulaLanguage(language='en') { const code=String(language).toLowerCase().split(/[-_]/)[0];return formulaLanguages.includes(code)?code:'en'; }
+const words = new Map(
+  translations
+    .trim()
+    .split("\n")
+    .map((row) => {
+      const [en, de, fr, it] = row.split("|");
+      return [en, { en, de, fr, it }];
+    }),
+);
+export const formulaLanguages = Object.freeze(["de", "en", "fr", "it"]);
+export function formulaLanguage(language = "en") {
+  const code = String(language).toLowerCase().split(/[-_]/)[0];
+  return formulaLanguages.includes(code) ? code : "en";
+}
 export function normalizeFormulaName(name) {
-  if(typeof name!=='string')throw new TypeError('Formula function names must be strings');
-  const normalized=name.trim().replace(/^=/,'').normalize('NFC').toUpperCase();
-  if(!/^[\p{L}_][\p{L}\p{M}0-9_]*(?:\.[\p{L}_][\p{L}\p{M}0-9_]*)*$/u.test(normalized))throw new TypeError(`Invalid formula function name: ${name}`);
+  if (typeof name !== "string")
+    throw new TypeError("Formula function names must be strings");
+  const normalized = name
+    .trim()
+    .replace(/^=/, "")
+    .normalize("NFC")
+    .toUpperCase();
+  if (
+    !/^[\p{L}_][\p{L}\p{M}0-9_]*(?:\.[\p{L}_][\p{L}\p{M}0-9_]*)*$/u.test(
+      normalized,
+    )
+  )
+    throw new TypeError(`Invalid formula function name: ${name}`);
   return normalized;
 }
 // Accent-free input is accepted for phone keyboards; collisions fail at startup.
-const key = name => normalizeFormulaName(name).normalize('NFD').replace(/\p{M}/gu,'');
-const records = new Map(), aliases = new Map();
+const key = (name) =>
+  normalizeFormulaName(name).normalize("NFD").replace(/\p{M}/gu, "");
+const records = new Map(),
+  aliases = new Map();
 function category(id) {
-  if(id==='MANDELBROT')return 'OPTIONAL';
-  if(id.includes('.'))return id.split('.')[0];
-  if(/^(TODAY|NOW|DATE|YEAR|MONTH|DAY|EDATE|EOMONTH|WEEK|ISOWEEK|NETWORKDAYS|WORKDAY)/.test(id))return 'DATE';
-  if(/^(TIME|HOUR|MINUTE|SECOND)/.test(id))return 'TIME';
-  if(['IF','IFS','SWITCH','CHOOSE','IFERROR','IFNA','AND','OR','XOR','NOT','TRUE','FALSE','LET','LAMBDA'].includes(id))return 'LOGIC';
-  if(/^(IS|N$|VALUE$)/.test(id))return 'TYPE';
-  if(/(LOOKUP|MATCH|INDEX)/.test(id))return 'LOOKUP';
-  if(['FILTER','UNIQUE','SORT','SEQUENCE','TEXTSPLIT','GROUPBY','UNPIVOT','CHOOSECOLS','CHOOSEROWS','TAKE','DROP','TOCOL','TOROW','FREQUENCY','TRANSPOSE','ROWS','COLUMNS','HSTACK','VSTACK','SUMPRODUCT','MAP','REDUCE','SCAN','BYROW','PIVOT','MAKEARRAY'].includes(id))return 'ARRAY';
-  if(/^(SUM|AVERAGE|MIN$|MAX$|MEDIAN|LARGE|SMALL|COUNT)/.test(id))return 'STAT';
-  if(['ABS','ROUND','ROUNDUP','ROUNDDOWN','FLOOR','CEIL','SQRT','POW','MOD','SIGN','PI','EXP','LN','LOG','RADIANS','DEGREES','SIN','COS','TAN','ASIN','ACOS','ATAN','ATAN2','HYPOT'].includes(id))return 'MATH';
-  return 'TEXT';
+  if (id === "MANDELBROT") return "OPTIONAL";
+  if (id.includes(".")) return id.split(".")[0];
+  if (
+    /^(TODAY|NOW|DATE|YEAR|MONTH|DAY|EDATE|EOMONTH|WEEK|ISOWEEK|NETWORKDAYS|WORKDAY)/.test(
+      id,
+    )
+  )
+    return "DATE";
+  if (/^(TIME|HOUR|MINUTE|SECOND)/.test(id)) return "TIME";
+  if (
+    [
+      "IF",
+      "IFS",
+      "SWITCH",
+      "CHOOSE",
+      "IFERROR",
+      "IFNA",
+      "AND",
+      "OR",
+      "XOR",
+      "NOT",
+      "TRUE",
+      "FALSE",
+      "LET",
+      "LAMBDA",
+    ].includes(id)
+  )
+    return "LOGIC";
+  if (/^(IS|N$|VALUE$)/.test(id)) return "TYPE";
+  if (/(LOOKUP|MATCH|INDEX)/.test(id)) return "LOOKUP";
+  if (
+    [
+      "FILTER",
+      "UNIQUE",
+      "SORT",
+      "SEQUENCE",
+      "TEXTSPLIT",
+      "GROUPBY",
+      "UNPIVOT",
+      "CHOOSECOLS",
+      "CHOOSEROWS",
+      "TAKE",
+      "DROP",
+      "TOCOL",
+      "TOROW",
+      "FREQUENCY",
+      "TRANSPOSE",
+      "ROWS",
+      "COLUMNS",
+      "HSTACK",
+      "VSTACK",
+      "SUMPRODUCT",
+      "MAP",
+      "REDUCE",
+      "SCAN",
+      "BYROW",
+      "PIVOT",
+      "MAKEARRAY",
+    ].includes(id)
+  )
+    return "ARRAY";
+  if (/^(SUM|AVERAGE|MIN$|MAX$|MEDIAN|LARGE|SMALL|COUNT)/.test(id))
+    return "STAT";
+  if (
+    [
+      "ABS",
+      "ROUND",
+      "ROUNDUP",
+      "ROUNDDOWN",
+      "FLOOR",
+      "CEIL",
+      "SQRT",
+      "POW",
+      "MOD",
+      "SIGN",
+      "PI",
+      "EXP",
+      "LN",
+      "LOG",
+      "RADIANS",
+      "DEGREES",
+      "SIN",
+      "COS",
+      "TAN",
+      "ASIN",
+      "ACOS",
+      "ATAN",
+      "ATAN2",
+      "HYPOT",
+    ].includes(id)
+  )
+    return "MATH";
+  return "TEXT";
 }
 const extras = `WEB.GET|url|Liest eine HTTPS-Antwort als Text; nur in der App nach Aktivierung.|Reads HTTPS response text; app only, after enabling.
 WEB.JSON|url; path?|Liest HTTPS-JSON, optional einen Pfad; nur in der App.|Reads HTTPS JSON, optionally a path; app only.
 WEB.STATUS|url|HTTP-Status der HTTPS-Antwort; nur in der App.|HTTP status of the HTTPS response; app only.`;
-for(const row of (formulaHelpRows.trim()+'\n'+extras).split('\n')) {
-  const [names,args,de,en]=row.split('|');
-  for(const name of names.split('/')) {
-    const id=legacy[name]??name;if(records.has(id))continue;
-    const localized=Object.fromEntries(formulaLanguages.map(language=>[language,id.split('.').map(segment=>{
-      if(!words.has(segment))throw new Error(`Missing translation: ${segment}`);return words.get(segment)[language];
-    }).join('.')]));
-    const signatureArgs=id==='COUNTIF'?'range; criteria':args;
-    const params=signatureArgs.split(';').map(value=>value.trim()).filter(Boolean),variadic=params.some(value=>value.includes('…'));
-    const arity=Object.freeze({min:id==='JSON.OBJECT'?1:params.filter(value=>!value.includes('…')&&!value.includes('?')&&!value.includes('=')).length,max:variadic?Infinity:params.length});
-    records.set(id,{id,names:Object.freeze(localized),args:signatureArgs,arity,volatile:['TODAY','NOW','RANDOM','RANDOM.INT','RANDOM.NORMAL','RANDOM.UUID'].includes(id),descriptions:Object.freeze({de,en}),category:category(id),availability:id.startsWith('WEB.')?'app':id==='MANDELBROT'?'optional':'core',evaluation:['IF','IFS','SWITCH','IFERROR','IFNA','AND','OR','LET','LAMBDA','PIVOT'].includes(id)?'special':'eager',aliases:[]});
+for (const row of (formulaHelpRows.trim() + "\n" + extras).split("\n")) {
+  const [names, args, de, en] = row.split("|");
+  for (const name of names.split("/")) {
+    const id = legacy[name] ?? name;
+    if (records.has(id)) continue;
+    const localized = Object.fromEntries(
+      formulaLanguages.map((language) => [
+        language,
+        id
+          .split(".")
+          .map((segment) => {
+            if (!words.has(segment))
+              throw new Error(`Missing translation: ${segment}`);
+            return words.get(segment)[language];
+          })
+          .join("."),
+      ]),
+    );
+    const signatureArgs = id === "COUNTIF" ? "range; criteria" : args;
+    const params = signatureArgs
+        .split(";")
+        .map((value) => value.trim())
+        .filter(Boolean),
+      variadic = params.some((value) => value.includes("…"));
+    const arity = Object.freeze({
+      min:
+        id === "JSON.OBJECT"
+          ? 1
+          : params.filter(
+              (value) =>
+                !value.includes("…") &&
+                !value.includes("?") &&
+                !value.includes("="),
+            ).length,
+      max: variadic ? Infinity : params.length,
+    });
+    records.set(id, {
+      id,
+      names: Object.freeze(localized),
+      args: signatureArgs,
+      arity,
+      volatile: [
+        "TODAY",
+        "NOW",
+        "RANDOM",
+        "RANDOM.INT",
+        "RANDOM.NORMAL",
+        "RANDOM.UUID",
+      ].includes(id),
+      descriptions: Object.freeze({ de, en }),
+      category: category(id),
+      availability: id.startsWith("WEB.")
+        ? "app"
+        : id === "MANDELBROT"
+          ? "optional"
+          : "core",
+      evaluation: [
+        "IF",
+        "IFS",
+        "SWITCH",
+        "IFERROR",
+        "IFNA",
+        "AND",
+        "OR",
+        "LET",
+        "LAMBDA",
+        "PIVOT",
+      ].includes(id)
+        ? "special"
+        : "eager",
+      aliases: [],
+    });
   }
 }
-for(const record of records.values()) {
-  const names=new Set([record.id,...Object.values(record.names),...Object.keys(legacy).filter(name=>legacy[name]===record.id)]);
-  for(const name of names){const normalized=key(name),previous=aliases.get(normalized);if(previous&&previous!==record.id)throw new Error(`Formula alias collision: ${name} (${previous}, ${record.id})`);aliases.set(normalized,record.id);}
-  record.aliases=Object.freeze([...names]);Object.freeze(record);
+for (const record of records.values()) {
+  const names = new Set([
+    record.id,
+    ...Object.values(record.names),
+    ...Object.keys(legacy).filter((name) => legacy[name] === record.id),
+  ]);
+  for (const name of names) {
+    const normalized = key(name),
+      previous = aliases.get(normalized);
+    if (previous && previous !== record.id)
+      throw new Error(
+        `Formula alias collision: ${name} (${previous}, ${record.id})`,
+      );
+    aliases.set(normalized, record.id);
+  }
+  record.aliases = Object.freeze([...names]);
+  Object.freeze(record);
 }
-export const formulaCatalog=Object.freeze([...records.values()]);
-export function resolveFormulaName(name) { const normalized=normalizeFormulaName(name);return aliases.get(key(normalized))??normalized; }
-export function formulaDefinition(name) { return records.get(resolveFormulaName(name)); }
-export function localizedFormulaName(name,language='en') { const record=formulaDefinition(name);return record?.names[formulaLanguage(language)]??normalizeFormulaName(name); }
+export const formulaCatalog = Object.freeze([...records.values()]);
+export function resolveFormulaName(name) {
+  const normalized = normalizeFormulaName(name);
+  return aliases.get(key(normalized)) ?? normalized;
+}
+export function formulaDefinition(name) {
+  return records.get(resolveFormulaName(name));
+}
+export function localizedFormulaName(name, language = "en") {
+  const record = formulaDefinition(name);
+  return record?.names[formulaLanguage(language)] ?? normalizeFormulaName(name);
+}

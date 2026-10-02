@@ -1,1 +1,1 @@
-export { default } from '../src/feature-i18n.js';
+export { default } from "../src/feature-i18n.js";

@@ -1,4 +1,4 @@
-import type { GridPlugin } from './tinygrid.js';
+import type { GridPlugin } from "./tinygrid.js";
 export interface WorksheetTabs {
   render(): void;
   /** Open the sheet context menu at viewport coordinates. */
@@ -10,4 +10,7 @@ export interface WorksheetTabs {
   manage(id: string): void;
   destroy(): void;
 }
-export function worksheetTabs(options: { container: string | HTMLElement; translate?: (key: string) => string }): GridPlugin<WorksheetTabs>;
+export function worksheetTabs(options: {
+  container: string | HTMLElement;
+  translate?: (key: string) => string;
+}): GridPlugin<WorksheetTabs>;

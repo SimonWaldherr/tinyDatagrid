@@ -1,5 +1,5 @@
 // Shared descriptions and argument signatures; consumed by the formula catalog.
-export const formulaHelpRows=`
+export const formulaHelpRows = `
 DURATION.CREATE|amount; unit="second"|Zeitspanne mit expliziter Einheit: Stunden, Minuten, Sekunden oder Millisekunden.|Duration with explicit hours, minutes, seconds or milliseconds.
 DURATION.SECONDS|duration|Zeitspanne in Sekunden auslesen.|Read duration in seconds.
 DECIMAL.PARSE|value|Exakte Dezimalzahl aus eindeutiger Zahl oder Text mit Dezimalpunkt; keine Rundung.|Exact decimal from an unambiguous number or decimal-point text; no rounding.

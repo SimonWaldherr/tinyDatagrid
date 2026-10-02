@@ -1,13 +1,31 @@
-import type { GridPlugin } from './tinygrid.js';
+import type { GridPlugin } from "./tinygrid.js";
 export interface Worksheets {
   readonly activeId: string;
   /** Table-local row visibility; registers a formula dependency on filters/hidden rows. */
   isRowVisible(name: string, row: number, col: number): boolean;
   /** Tabs in display order; hidden sheets are included with hidden: true. */
-  list(): Array<{id: string; name: string; color: string | null; hidden: boolean}>;
-  listObjects(): Array<{id:string;type:'table'|'pivot'|'chart'|'heatmap';name:string;range:import('./tinygrid.js').CellRange;chartType?:string;ruleIndex?:number;sheetId:string;sheetName:string}>;
+  list(): Array<{
+    id: string;
+    name: string;
+    color: string | null;
+    hidden: boolean;
+  }>;
+  listObjects(): Array<{
+    id: string;
+    type: "table" | "pivot" | "chart" | "heatmap";
+    name: string;
+    range: import("./tinygrid.js").CellRange;
+    chartType?: string;
+    ruleIndex?: number;
+    sheetId: string;
+    sheetName: string;
+  }>;
   add(name?: string): string;
-  importSheet(sheet: {name?: string; cells: any[]; [key: string]: unknown}): unknown;
+  importSheet(sheet: {
+    name?: string;
+    cells: any[];
+    [key: string]: unknown;
+  }): unknown;
   select(id: string): boolean;
   rename(id: string, name: string): void;
   remove(id: string): boolean;

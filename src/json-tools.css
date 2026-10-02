@@ -1,34 +1,258 @@
 /* Optional presentation for installJSONTools() and its small host-side status chip. */
-.tg-json-chip{min-height:0;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:600;color:var(--tg-accent,#167761);background:var(--tg-hover,#e5f3ed);border:1px solid transparent;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-.tg-json-chip:hover:not(:disabled){border-color:var(--tg-accent,#167761)}
-.tg-json-dialog{--tg-json-panel:var(--panel,var(--tg-panel,#fff));--tg-json-surface:var(--surface,var(--tg-header,#f3f6f5));--tg-json-text:var(--text,var(--tg-text,#243532));--tg-json-muted:var(--muted,var(--tg-muted,#586d67));--tg-json-line:var(--line,var(--tg-border,#dce3e3));--tg-json-accent:var(--accent,var(--tg-accent,#167761));--tg-json-tint:var(--tint,var(--tg-hover,#e5f3ed));color:var(--tg-json-text)}
-.tg-json-dialog.wide{width:min(940px,calc(100vw - 24px));max-height:92dvh}
-.tg-json-dialog .json-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:10px 0 8px}
-.tg-json-dialog .json-tools{display:flex;gap:6px}
-.tg-json-dialog .json-status{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--tg-json-surface);border:1px solid var(--tg-json-line);color:var(--tg-json-muted)}
-.tg-json-dialog .json-status[data-state="valid"],.tg-json-dialog .json-status[data-state="scalar"]{color:var(--tg-json-accent);background:var(--tg-json-tint);border-color:transparent}
-.tg-json-dialog .json-status[data-state="invalid"]{color:var(--danger,var(--tg-error,#b42318));background:var(--danger-bg,var(--tg-error-bg,#fff1f0));border-color:transparent}
-.tg-json-dialog .json-panes{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.tg-json-dialog .json-pane{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px;color:var(--tg-json-muted)}
-.tg-json-dialog #jsonText{height:340px;resize:none;font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;tab-size:2;white-space:pre;overflow:auto}
-.tg-json-dialog .json-tree{height:340px;overflow:auto;border:1px solid var(--tg-json-line);border-radius:6px;background:var(--tg-json-panel);padding:6px 4px;font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--tg-json-text);-webkit-user-select:text;user-select:text}
-.tg-json-dialog .json-tree[data-empty="true"]{padding:14px;font:12px/1.5 system-ui,sans-serif;color:var(--tg-json-muted)}
-.tg-json-dialog .json-tree details>summary{list-style:none;cursor:pointer;padding:1px 6px;border-radius:4px;display:flex;gap:8px;align-items:baseline}
-.tg-json-dialog .json-tree details>summary::-webkit-details-marker{display:none}
-.tg-json-dialog .json-tree details>summary::before{content:"▸";display:inline-block;width:1em;color:var(--tg-json-muted);transition:transform .1s}
-.tg-json-dialog .json-tree details[open]>summary::before{transform:rotate(90deg)}
-.tg-json-dialog .json-children{margin-left:14px;padding-left:8px;border-left:1px solid var(--tg-json-line)}
-.tg-json-dialog .json-leaf{padding:1px 6px 1px 1.55em;border-radius:4px;cursor:pointer;display:flex;gap:6px;align-items:baseline;overflow-wrap:anywhere}
-.tg-json-dialog .json-tree .selected,.tg-json-dialog .json-leaf:hover,.tg-json-dialog .json-tree summary:hover{background:var(--tg-json-tint)}
-.tg-json-dialog .json-tree .selected{outline:1px solid var(--tg-json-accent);outline-offset:-1px}
-.tg-json-dialog .json-key{color:var(--tg-json-text);font-weight:600}.tg-json-dialog .json-colon,.tg-json-dialog .json-count{color:var(--tg-json-muted)}.tg-json-dialog .json-count{font-size:11px}
-.tg-json-dialog .json-string{color:#0b7a4b}.tg-json-dialog .json-number{color:#1f6fc4}.tg-json-dialog .json-boolean{color:#a8541a}.tg-json-dialog .json-null{color:var(--tg-json-muted);font-style:italic}.tg-json-dialog .json-more{padding:2px 6px 2px 1.55em;color:var(--tg-json-muted);font-style:italic}
-:root[data-theme="dark"] .tg-json-dialog .json-string,:root[data-theme="midnight"] .tg-json-dialog .json-string,:root[data-theme="graphite"] .tg-json-dialog .json-string{color:#7ee0ae}
-:root[data-theme="dark"] .tg-json-dialog .json-number,:root[data-theme="midnight"] .tg-json-dialog .json-number,:root[data-theme="graphite"] .tg-json-dialog .json-number{color:#8db8ff}
-:root[data-theme="dark"] .tg-json-dialog .json-boolean,:root[data-theme="midnight"] .tg-json-dialog .json-boolean,:root[data-theme="graphite"] .tg-json-dialog .json-boolean{color:#ffb454}
-@media(prefers-color-scheme:dark){:root[data-theme="system"] .tg-json-dialog .json-string{color:#7ee0ae}:root[data-theme="system"] .tg-json-dialog .json-number{color:#8db8ff}:root[data-theme="system"] .tg-json-dialog .json-boolean{color:#ffb454}}
-.tg-json-dialog .json-pathbar{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--tg-json-muted);flex-wrap:wrap}
-.tg-json-dialog .json-pathbar code{flex:1;min-width:120px;padding:5px 9px;border-radius:6px;background:var(--tg-json-surface);border:1px solid var(--tg-json-line);color:var(--tg-json-text);font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;min-height:30px}
-.tg-json-dialog .json-actions{align-items:center;gap:12px;flex-wrap:wrap}
-.tg-json-dialog .json-actions .check{margin-right:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tg-json-muted)}
-@media(max-width:700px){.tg-json-dialog .json-panes{grid-template-columns:1fr}.tg-json-dialog #jsonText,.tg-json-dialog .json-tree{height:220px}}
+.tg-json-chip {
+  min-height: 0;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tg-accent, #167761);
+  background: var(--tg-hover, #e5f3ed);
+  border: 1px solid transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.tg-json-chip:hover:not(:disabled) {
+  border-color: var(--tg-accent, #167761);
+}
+.tg-json-dialog {
+  --tg-json-panel: var(--panel, var(--tg-panel, #fff));
+  --tg-json-surface: var(--surface, var(--tg-header, #f3f6f5));
+  --tg-json-text: var(--text, var(--tg-text, #243532));
+  --tg-json-muted: var(--muted, var(--tg-muted, #586d67));
+  --tg-json-line: var(--line, var(--tg-border, #dce3e3));
+  --tg-json-accent: var(--accent, var(--tg-accent, #167761));
+  --tg-json-tint: var(--tint, var(--tg-hover, #e5f3ed));
+  color: var(--tg-json-text);
+}
+.tg-json-dialog.wide {
+  width: min(940px, calc(100vw - 24px));
+  max-height: 92dvh;
+}
+.tg-json-dialog .json-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 8px;
+}
+.tg-json-dialog .json-tools {
+  display: flex;
+  gap: 6px;
+}
+.tg-json-dialog .json-status {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--tg-json-surface);
+  border: 1px solid var(--tg-json-line);
+  color: var(--tg-json-muted);
+}
+.tg-json-dialog .json-status[data-state="valid"],
+.tg-json-dialog .json-status[data-state="scalar"] {
+  color: var(--tg-json-accent);
+  background: var(--tg-json-tint);
+  border-color: transparent;
+}
+.tg-json-dialog .json-status[data-state="invalid"] {
+  color: var(--danger, var(--tg-error, #b42318));
+  background: var(--danger-bg, var(--tg-error-bg, #fff1f0));
+  border-color: transparent;
+}
+.tg-json-dialog .json-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.tg-json-dialog .json-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--tg-json-muted);
+}
+.tg-json-dialog #jsonText {
+  height: 340px;
+  resize: none;
+  font:
+    12.5px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+.tg-json-dialog .json-tree {
+  height: 340px;
+  overflow: auto;
+  border: 1px solid var(--tg-json-line);
+  border-radius: 6px;
+  background: var(--tg-json-panel);
+  padding: 6px 4px;
+  font:
+    12.5px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  color: var(--tg-json-text);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.tg-json-dialog .json-tree[data-empty="true"] {
+  padding: 14px;
+  font:
+    12px/1.5 system-ui,
+    sans-serif;
+  color: var(--tg-json-muted);
+}
+.tg-json-dialog .json-tree details > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.tg-json-dialog .json-tree details > summary::-webkit-details-marker {
+  display: none;
+}
+.tg-json-dialog .json-tree details > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  color: var(--tg-json-muted);
+  transition: transform 0.1s;
+}
+.tg-json-dialog .json-tree details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.tg-json-dialog .json-children {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 1px solid var(--tg-json-line);
+}
+.tg-json-dialog .json-leaf {
+  padding: 1px 6px 1px 1.55em;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.tg-json-dialog .json-tree .selected,
+.tg-json-dialog .json-leaf:hover,
+.tg-json-dialog .json-tree summary:hover {
+  background: var(--tg-json-tint);
+}
+.tg-json-dialog .json-tree .selected {
+  outline: 1px solid var(--tg-json-accent);
+  outline-offset: -1px;
+}
+.tg-json-dialog .json-key {
+  color: var(--tg-json-text);
+  font-weight: 600;
+}
+.tg-json-dialog .json-colon,
+.tg-json-dialog .json-count {
+  color: var(--tg-json-muted);
+}
+.tg-json-dialog .json-count {
+  font-size: 11px;
+}
+.tg-json-dialog .json-string {
+  color: #0b7a4b;
+}
+.tg-json-dialog .json-number {
+  color: #1f6fc4;
+}
+.tg-json-dialog .json-boolean {
+  color: #a8541a;
+}
+.tg-json-dialog .json-null {
+  color: var(--tg-json-muted);
+  font-style: italic;
+}
+.tg-json-dialog .json-more {
+  padding: 2px 6px 2px 1.55em;
+  color: var(--tg-json-muted);
+  font-style: italic;
+}
+:root[data-theme="dark"] .tg-json-dialog .json-string,
+:root[data-theme="midnight"] .tg-json-dialog .json-string,
+:root[data-theme="graphite"] .tg-json-dialog .json-string {
+  color: #7ee0ae;
+}
+:root[data-theme="dark"] .tg-json-dialog .json-number,
+:root[data-theme="midnight"] .tg-json-dialog .json-number,
+:root[data-theme="graphite"] .tg-json-dialog .json-number {
+  color: #8db8ff;
+}
+:root[data-theme="dark"] .tg-json-dialog .json-boolean,
+:root[data-theme="midnight"] .tg-json-dialog .json-boolean,
+:root[data-theme="graphite"] .tg-json-dialog .json-boolean {
+  color: #ffb454;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] .tg-json-dialog .json-string {
+    color: #7ee0ae;
+  }
+  :root[data-theme="system"] .tg-json-dialog .json-number {
+    color: #8db8ff;
+  }
+  :root[data-theme="system"] .tg-json-dialog .json-boolean {
+    color: #ffb454;
+  }
+}
+.tg-json-dialog .json-pathbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--tg-json-muted);
+  flex-wrap: wrap;
+}
+.tg-json-dialog .json-pathbar code {
+  flex: 1;
+  min-width: 120px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--tg-json-surface);
+  border: 1px solid var(--tg-json-line);
+  color: var(--tg-json-text);
+  font:
+    12px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+  min-height: 30px;
+}
+.tg-json-dialog .json-actions {
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tg-json-dialog .json-actions .check {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--tg-json-muted);
+}
+@media (max-width: 700px) {
+  .tg-json-dialog .json-panes {
+    grid-template-columns: 1fr;
+  }
+  .tg-json-dialog #jsonText,
+  .tg-json-dialog .json-tree {
+    height: 220px;
+  }
+}

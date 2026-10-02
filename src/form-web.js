@@ -1,8 +1,27 @@
-import {formCSS} from './form-ui.js';
-const escape=text=>String(text).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
-export function renderWebForm(definition){
-  const publicFields=definition.fields.map(({id,label,kind,required,choices,minLength,maxLength})=>({id,label,kind,required:required===true,choices,minLength,maxLength}));
-  const encoded=JSON.stringify(publicFields).replaceAll('<','\\u003c').replaceAll('\u2028','\\u2028').replaceAll('\u2029','\\u2029');
+import { formCSS } from "./form-ui.js";
+const escape = (text) =>
+  String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+export function renderWebForm(definition) {
+  const publicFields = definition.fields.map(
+    ({ id, label, kind, required, choices, minLength, maxLength }) => ({
+      id,
+      label,
+      kind,
+      required: required === true,
+      choices,
+      minLength,
+      maxLength,
+    }),
+  );
+  const encoded = JSON.stringify(publicFields)
+    .replaceAll("<", "\\u003c")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(definition.title)}</title><style>${formCSS}.tg-form-dialog{margin:24px auto;max-height:none;border:0}body{margin:0;background:#edf5f2}h1{font-size:24px}</style></head><body><main class="tg-form-dialog"><h1>${escape(definition.title)}</h1><p>Antworten werden auf dem freigebenden Gerät in der Tabelle gespeichert.</p><form id="form"><div id="fields"></div><button type="submit">Antwort senden</button></form><p id="status" role="status" aria-live="polite"></p><small>Lokale Freigabe · tinyDatagrid</small></main><script>
 const fields=${encoded};
 const form=document.querySelector('#form'),status=document.querySelector('#status');let pending=null;

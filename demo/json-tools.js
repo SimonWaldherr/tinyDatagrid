@@ -1,1 +1,1 @@
-export { installJSONTools } from '../src/json-tools.js';
+export { installJSONTools } from "../src/json-tools.js";

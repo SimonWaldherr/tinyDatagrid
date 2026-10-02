@@ -1,4 +1,4 @@
-import type { TinyDatagrid, CellRange } from './tinygrid.js';
+import type { TinyDatagrid, CellRange } from "./tinygrid.js";
 
 export type SearchToolsOptions = {
   grid: TinyDatagrid;
