@@ -2564,3 +2564,58 @@ body {
     display: none;
   }
 }
+
+.bi-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+.bi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+.bi-card span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.bi-card strong {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.local-sql-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+.local-sql-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.local-sql-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 7rem;
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+  margin-bottom: 0.75rem;
+}
+.local-sql-schema {
+  overflow-wrap: anywhere;
+}
+.local-sql-results {
+  max-height: 40vh;
+}
+.local-sql-results table {
+  width: 100%;
+}

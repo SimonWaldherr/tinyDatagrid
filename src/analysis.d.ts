@@ -1,6 +1,13 @@
-import type { TinyDatagrid, CellRange, GridPlugin } from "./tinygrid.js";
+import type {
+  TinyDatagrid,
+  CellRange,
+  CellLineage,
+  GridPlugin,
+} from "./tinygrid.js";
 import type { SheetPivotOptions } from "./pivots.js";
 export type AnalysisOptions = {
+  /** Retain wholly blank records, for example when reading a materialized SQL result. */
+  includeEmptyRows?: boolean;
   scope?: "all" | "visible" | "selection";
   selection?: CellRange;
 };
@@ -33,6 +40,7 @@ export function pivotAnalysis(
   options?: AnalysisOptions,
 ): {
   headers: string[];
+  lineage: CellLineage;
   result: ReturnType<TinyDatagrid["pivot"]>;
   drill(row: number, col: number): SourceEntry[];
 };

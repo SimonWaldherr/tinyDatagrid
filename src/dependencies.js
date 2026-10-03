@@ -98,6 +98,15 @@ export class CellMap extends Map {
       Object.is(old.originalInput, value?.originalInput)
     )
       value = { ...value, originalInput: value.raw };
+    // A manually replaced value no longer represents its old derived result.
+    if (
+      old?.lineage &&
+      value?.lineage === old.lineage &&
+      (!Object.is(old.raw, value.raw) || old.valueType !== value?.valueType)
+    ) {
+      value = { ...value };
+      delete value.lineage;
+    }
     if (
       !Object.is(old?.raw, value?.raw) ||
       old?.valueType !== value?.valueType

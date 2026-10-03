@@ -1,4 +1,22 @@
 const text = {
+  localSQLTitle: ["SQL-Abfragen", "SQL queries"],
+  localSQLHint: [
+    "Tabellen dieses Blatts mit SELECT abfragen. INTO Sheet2:A5 schreibt das Ergebnis als Tabelle. Unterstützt: WHERE, GROUP BY, HAVING, COUNT/SUM/AVG/MIN/MAX, ORDER BY, LIMIT. Ctrl / ⌘ + Enter führt die Abfrage aus.",
+    "Query tables in this sheet with SELECT. INTO Sheet2:A5 writes the result as a table. Supports WHERE, GROUP BY, HAVING, COUNT/SUM/AVG/MIN/MAX, ORDER BY and LIMIT. Ctrl / ⌘ + Enter runs the query.",
+  ],
+  localSQLExample: ["Beispiel einsetzen", "Use example"],
+  localSQLQuery: ["SQL-Abfrage", "SQL query"],
+  localSQLRun: ["Abfrage ausführen", "Run query"],
+  localSQLMaterialize: ["Als Tabelle auf neuem Blatt", "Table in new sheet"],
+  localSQLMaterializeHint: [
+    "Das gesamte Ergebnis als bearbeitbare Momentaufnahme speichern. Text bleibt Text; späteres Ändern der Quelldaten aktualisiert diese Tabelle nicht.",
+    "Save the entire result as an editable snapshot. Text stays text; later source changes do not update this table.",
+  ],
+  localSQLResultName: ["SQL-Ergebnis", "SQL result"],
+  localSQLMaterialized: ["Ergebnistabelle erstellt", "Result table created"],
+  localSQLOpenDestination: ["Ergebnistabelle öffnen", "Open result table"],
+  biMetrics: ["Kennzahlen", "Key metrics"],
+  biDistinct: ["Eindeutige Werte", "Distinct values"],
   toggleTools: ["Werkzeuge ein- oder ausblenden", "Show or hide tools"],
   pivotAsFormula: ["Als Formel einfügen", "Insert as formula"],
   pivotFormulaHint: [
@@ -380,12 +398,12 @@ const text = {
     "This range cannot be moved.",
   ],
   noReferences: [
-    "Keine direkten Zellbezüge gefunden.",
-    "No direct cell references found.",
+    "Keine Vorgänger oder Nachfolger gefunden.",
+    "No precedents or dependents found.",
   ],
   traceHint: [
-    "Direkte Bezüge aus den Formeln, einschließlich aller IF-Zweige. Anklicken zum Öffnen.",
-    "Direct references from formulas, including all IF branches. Click to navigate.",
+    "Verfolgt Formeln, Pivot- und SQL-Ergebnisse über alle Blätter und mehrere Schritte. Pivot/SQL zeigen den vollständigen Eingabebereich. Anklicken zum Öffnen.",
+    "Trace formulas, pivot and SQL results across worksheets and multiple steps. Pivot/SQL show the complete input range. Click to navigate.",
   ],
   multilineHint: [
     "Enter: übernehmen ↓ · Strg/⌘ + Enter: ↑ · Tab: → · Shift + Tab: ← · Shift + Enter: neue Zeile · Esc: verwerfen",

@@ -257,6 +257,8 @@ export function worksheets() {
             name: id === active ? grid.sheetName : item.sheet.name,
             cells: model(id).cells,
             variables: model(id).variables,
+            pivotTables: model(id).pivotTables,
+            read: (row, col) => model(id).getCalculationValue(row, col),
           }));
         },
         applyReferenceChanges(changes, forward) {

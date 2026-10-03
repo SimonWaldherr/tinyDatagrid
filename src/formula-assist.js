@@ -375,8 +375,8 @@ export function installFormulaTools({
     if ($("#dependencyPanel").hidden) return;
     const items =
         traceMode === "precedents"
-          ? grid.getPrecedents()
-          : grid.getDependents(),
+          ? grid.getPrecedents(undefined, undefined, { recursive: true })
+          : grid.getDependents(undefined, undefined, { recursive: true }),
       list = $("#referenceList");
     list.replaceChildren();
     for (const item of items) {
@@ -395,6 +395,8 @@ export function installFormulaTools({
         traceMode === "precedents"
           ? item.text
           : (item.sheet ? `${item.sheet}!` : "") + item.address;
+      if (item.kind && item.kind !== "formula")
+        button.textContent += ` [${item.kind.toUpperCase()}]`;
       const worksheets = grid.feature("worksheets");
       const local =
         item.sheetId === (worksheets?.activeId ?? null) &&

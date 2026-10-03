@@ -67,7 +67,8 @@ import {
 import { translate } from "./i18n.js";
 import { difference, applyDifference } from "./history.js";
 import { Dependencies, CellMap } from "./dependencies.js";
-import { references, followsMove, containsReference } from "./references.js";
+import { checkedLineage, tracePrecedents, traceDependents } from "./lineage.js";
+import { followsMove } from "./references.js";
 let gridSequence = 0;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -4453,6 +4454,8 @@ export class TinyDatagrid {
         if (meta.className) cell.className = meta.className;
       }
       if (meta.pivotOwner) cell.pivotOwner = meta.pivotOwner;
+      if (meta.lineage && (values || formulas))
+        cell.lineage = checkedLineage(meta.lineage);
       if (values && meta.valueType) cell.valueType = meta.valueType;
       if (values && Object.hasOwn(meta, "originalInput"))
         cell.originalInput = toPortableValue(meta.originalInput);
@@ -4656,6 +4659,8 @@ export class TinyDatagrid {
         hasValue = true;
       }
       if (source.pivotOwner) meta.pivotOwner = source.pivotOwner;
+      if (hasValue && source.lineage)
+        meta.lineage = checkedLineage(source.lineage);
       if (hasValue)
         meta.valueType =
           typeof source.valueType === "string" ? source.valueType : undefined;
@@ -4763,7 +4768,12 @@ export class TinyDatagrid {
   }
   createTable(
     range = this.getUsedRange(),
-    { headerRow = range.r1, style = "banded", name } = {},
+    {
+      headerRow = range.r1,
+      style = "banded",
+      name,
+      includeEmptyRows = false,
+    } = {},
   ) {
     if (this.readOnly) return false;
     const normalized = {
@@ -4801,6 +4811,7 @@ export class TinyDatagrid {
       style,
       id,
       name: String(name || `Table ${n}`),
+      ...(includeEmptyRows ? { includeEmptyRows: true } : {}),
       filters: new Map(),
     });
     this._activeTableId = id;
@@ -5264,44 +5275,33 @@ export class TinyDatagrid {
           name: this.sheetName,
           cells: this.cells,
           variables: this.variables,
+          pivotTables: this.pivotTables,
+          read: (row, col) => this.getCalculationValue(row, col),
         },
       ]
     );
   }
-  getPrecedents(row = this.anchor.row, col = this.anchor.col) {
-    const ws = this.feature("worksheets"),
-      id = ws?.activeId ?? null,
-      formula = this.getRawValue(row, col);
-    return references(formula).map((ref) => ({
-      ...ref,
-      sheetId: ref.sheet ? (ws?.resolve(ref.sheet) ?? null) : id,
-    }));
+  /** Attach portable provenance to an output cell from any host transformation. */
+  setCellLineage(row, col, lineage) {
+    if (this.readOnly) return false;
+    if (![row, col].every((n) => Number.isSafeInteger(n) && n >= 0))
+      throw new RangeError("Invalid lineage cell");
+    const checked = checkedLineage(lineage);
+    return this.transaction(() => {
+      const key = this.key(row, col),
+        cell = { ...this.getCell(row, col) };
+      if (checked) cell.lineage = checked;
+      else delete cell.lineage;
+      this.cells.set(key, cell);
+      this.emit("change", { type: "lineage", row, col });
+      return true;
+    });
   }
-  getDependents(row = this.anchor.row, col = this.anchor.col) {
-    const ws = this.feature("worksheets"),
-      id = ws?.activeId ?? null,
-      out = [];
-    for (const document of this._referenceDocuments())
-      for (const [key, cell] of document.cells) {
-        if (
-          references(cell.raw).some(
-            (ref) =>
-              (ref.sheet ? ws?.resolve(ref.sheet) : document.id) === id &&
-              containsReference(ref, row, col),
-          )
-        ) {
-          const [r, c] = key.split(",").map(Number);
-          out.push({
-            sheetId: document.id,
-            sheet: document.name,
-            row: r,
-            col: c,
-            address: toA1(r, c),
-            formula: cell.raw,
-          });
-        }
-      }
-    return out;
+  getPrecedents(row = this.anchor.row, col = this.anchor.col, options = {}) {
+    return tracePrecedents(this, row, col, options);
+  }
+  getDependents(row = this.anchor.row, col = this.anchor.col, options = {}) {
+    return traceDependents(this, row, col, options);
   }
   moveRange(source, destRow, destCol) {
     if (this.readOnly) return false;

@@ -1,3 +1,4 @@
+import { sourceLineage } from "./lineage.js";
 import { PivotEngine } from "./tinygrid.js";
 
 export const analysisScopes = ["all", "visible", "selection"];
@@ -23,6 +24,8 @@ export function includesAnalysisRow(
 }
 /** Read a header-first rectangle, retaining source row numbers for drill-through. */
 export function analysisRecords(grid, source, options = {}) {
+  if (!analysisScopes.includes(options.scope ?? "visible"))
+    throw new TypeError("Invalid analysis scope");
   if (
     !source ||
     !["r1", "r2", "c1", "c2"].every(
@@ -52,7 +55,7 @@ export function analysisRecords(grid, source, options = {}) {
     const values = headers.map((_, i) =>
       grid.getComputedValue(row, source.c1 + i),
     );
-    if (values.some((v) => v !== "" && v != null))
+    if (options.includeEmptyRows || values.some((v) => v !== "" && v != null))
       entries.push({
         row,
         record: Object.fromEntries(headers.map((h, i) => [h, values[i]])),
@@ -77,6 +80,7 @@ export function pivotAnalysis(grid, source, config, options = {}) {
   );
   return {
     result,
+    lineage: sourceLineage(grid, source, "pivot"),
     headers,
     drill(row, col) {
       const rk = result.rowKeys[row - 1],

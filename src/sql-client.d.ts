@@ -119,10 +119,7 @@ export class SQLClientAdapter {
     params?: unknown,
     options?: SQLQueryOptions,
   ): Promise<SQLResultSet | null>;
-  loadNextPage(options?: {
-    signal?: AbortSignal;
-    pageSize?: number;
-  }): Promise<{
+  loadNextPage(options?: { signal?: AbortSignal; pageSize?: number }): Promise<{
     rows: number;
     loadedRows: number;
     fetchedRows: number;

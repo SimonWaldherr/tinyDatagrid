@@ -1,3 +1,12 @@
+/** Provenance ranges are structural inputs, including filters/grouping, rather than exact value attribution. */
+export interface CellLineage {
+  kind: string;
+  sources: Array<CellRange & { sheetId: string | null }>;
+  query?: string;
+}
+export interface TraceOptions {
+  recursive?: boolean;
+}
 export type SQLColumnMetadata = {
   name: string;
   type?: string;
@@ -173,10 +182,17 @@ export class TinyDatagrid {
   clearSelection(): boolean;
   moveRange(source: CellRange, destRow: number, destCol: number): boolean;
   getOriginalValue(row: number, col: number): unknown;
+  setCellLineage(
+    row: number,
+    col: number,
+    lineage: CellLineage | null,
+  ): boolean;
   getPrecedents(
     row?: number,
     col?: number,
+    options?: TraceOptions,
   ): Array<{
+    kind?: string;
     text: string;
     sheet?: string;
     sheetId: string | null;
@@ -187,7 +203,9 @@ export class TinyDatagrid {
   getDependents(
     row?: number,
     col?: number,
+    options?: TraceOptions,
   ): Array<{
+    kind?: string;
     sheetId: string | null;
     sheet: string;
     row: number;
@@ -210,6 +228,7 @@ export class TinyDatagrid {
     c2: number;
     headerRow: number;
     style: string;
+    includeEmptyRows?: boolean;
     filters: Array<{ column: number; values: string[] }>;
   }>;
   tableAt(
@@ -222,7 +241,12 @@ export class TinyDatagrid {
     | null;
   createTable(
     range?: CellRange,
-    options?: { headerRow?: number; style?: string; name?: string },
+    options?: {
+      headerRow?: number;
+      style?: string;
+      name?: string;
+      includeEmptyRows?: boolean;
+    },
   ): this | false;
   activateTable(id: string): this;
   removeTable(id?: string): boolean;

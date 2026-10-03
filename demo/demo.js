@@ -1,6 +1,9 @@
 import { openFormGenerator } from "../src/form-ui.js";
 import { installObjectBrowser } from "./object-browser.js";
 import { analysisContext } from "../src/analysis.js";
+import { businessIntelligence } from "../src/bi.js";
+import { localSQL } from "../src/local-sql.js";
+import { installSQLTools } from "./sql-tools.js";
 import { installAnalysisTools } from "./analysis-tools.js";
 import { installSimulations } from "./simulations.js";
 import { worksheets } from "../src/worksheets.js";
@@ -929,6 +932,8 @@ $("#unhideBtn").onclick = () => {
 };
 
 grid.use(analysisContext());
+grid.use(businessIntelligence());
+grid.use(localSQL());
 const analysisTools = installAnalysisTools({
   grid,
   $,
@@ -938,6 +943,14 @@ const analysisTools = installAnalysisTools({
   refresh: () => scheduleInspector(),
 });
 const simulations = installSimulations({ grid, $, t: (key) => t(key), notify });
+installSQLTools({
+  grid,
+  $,
+  t: (key) => t(key),
+  selection,
+  notify,
+  showSource: (data, range) => analysisTools.show(data, range),
+});
 const chartTools = installCharts({
   grid,
   $,
@@ -1082,6 +1095,7 @@ function renderPivot(manual = false) {
     chart = $("#pivotChart");
   pivot.replaceChildren();
   chart.replaceChildren();
+  $("#biMetrics").replaceChildren();
   let rowCount = table ? Math.max(0, table.r2 - table.headerRow) : 0;
   if (table)
     for (let row = table.headerRow + 1; row <= table.r2; row++)
@@ -1137,19 +1151,35 @@ function renderPivot(manual = false) {
   };
   let analysis;
   try {
-    analysis = grid
-      .feature("analysis")
-      .pivot(source, {
-        rows: [rowField],
-        columns: columnField ? [columnField] : [],
-        values: [
-          {
-            field: valueField,
-            aggregate: $("#pivotAggregate").value,
-            as: valueField,
-          },
-        ],
-      });
+    const report = grid.feature("bi").summarize(source, {
+      metrics: [
+        { id: "rows", aggregate: "count" },
+        { id: "sum", field: valueField, aggregate: "sum" },
+        { id: "average", field: valueField, aggregate: "average" },
+        { id: "distinct", field: rowField, aggregate: "distinct" },
+      ],
+    });
+    for (const metric of report.metrics) {
+      const card = document.createElement("div"),
+        label = document.createElement("span"),
+        value = document.createElement("strong");
+      card.className = "bi-card";
+      label.textContent = `${t(metric.id === "distinct" ? "biDistinct" : metric.id)}${metric.id === "sum" || metric.id === "average" ? ` · ${valueField}` : metric.id === "distinct" ? ` · ${rowField}` : ""}`;
+      value.textContent = metric.value == null ? "—" : fmt(metric.value);
+      card.append(label, value);
+      $("#biMetrics").append(card);
+    }
+    analysis = grid.feature("analysis").pivot(source, {
+      rows: [rowField],
+      columns: columnField ? [columnField] : [],
+      values: [
+        {
+          field: valueField,
+          aggregate: $("#pivotAggregate").value,
+          as: valueField,
+        },
+      ],
+    });
   } catch (e) {
     pivot.textContent = e.message;
     return;
@@ -1726,7 +1756,11 @@ moreTools.setAttribute("popover", "auto");
 moreTools.setAttribute("role", "group");
 moreTools.dataset.label = "moreTools";
 for (const button of [...$(".tools-grid").children])
-  if (!["sumBtn", "chartBtn", "pivotBtn", "findBtn"].includes(button.id))
+  if (
+    !["sumBtn", "chartBtn", "pivotBtn", "localSQLBtn", "findBtn"].includes(
+      button.id,
+    )
+  )
     moreTools.append(button);
 const moreButton = document.createElement("button");
 moreButton.id = "moreToolsBtn";
