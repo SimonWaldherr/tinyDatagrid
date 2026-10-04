@@ -252,20 +252,24 @@ function parse(sql, params) {
       const expr = value();
       const descending = take("DESC");
       if (!descending) take("ASC");
-      return { expr, descending };
+      let nullsFirst = false;
+      if (take("NULLS")) {
+        if (take("FIRST")) nullsFirst = true;
+        else expect("LAST");
+      }
+      return { expr, descending, nullsFirst };
     });
   }
   const integer = () => {
-    const token = peek();
+    const expr = value(false);
     if (
-      token.type !== "literal" ||
-      typeof token.value !== "number" ||
-      !Number.isSafeInteger(token.value) ||
-      token.value < 0
+      expr.kind !== "literal" ||
+      typeof expr.value !== "number" ||
+      !Number.isSafeInteger(expr.value) ||
+      expr.value < 0
     )
       fail("Expected nonnegative integer");
-    index++;
-    return token.value;
+    return expr.value;
   };
   const limit = take("LIMIT") ? integer() : null;
   const hasOffset = take("OFFSET");
@@ -300,7 +304,6 @@ function resolve(id, names) {
   return matches[0];
 }
 function scalarKey(value) {
-  value = nullable(value);
   if (isFormulaError(value))
     throw new TypeError(`SQL source contains ${value}`);
   const kind = scalarKind(value);
@@ -314,6 +317,21 @@ function scalarKey(value) {
   throw new TypeError("SQL grouping/comparison requires scalar values");
 }
 const keyOf = (values) => JSON.stringify(values.map(scalarKey));
+// Unsupported values retain the comparison path and its type errors.
+function indexable(value) {
+  if (value == null) return true;
+  const kind = scalarKind(value);
+  if (kind === "number")
+    return (
+      numeric(value) &&
+      (typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        Number.isSafeInteger(value))
+    );
+  if (kind === "date" || kind === "datetime")
+    return Number.isFinite(value.getTime());
+  return ["string", "boolean", "time", "duration"].includes(kind);
+}
 function compare(a, b, op) {
   if (a == null || b == null) return null;
   const order = compareScalars(a, b);
@@ -371,11 +389,34 @@ function test(node, read, charge) {
   }
   const left = read(node.left);
   if (node.op === "null") return node.not ? left != null : left == null;
-  if (node.op === "in")
-    return node.items.reduce(
-      (answer, item) => sqlOr(answer, compare(left, read(item), "=")),
-      false,
-    );
+  if (node.op === "in") {
+    if (node.indexed && indexable(left)) {
+      if (!node.lookup) {
+        node.lookup = new Set();
+        node.hasNull = false;
+        for (const item of node.items) {
+          charge(1);
+          const itemValue = read(item);
+          if (itemValue == null) node.hasNull = true;
+          else node.lookup.add(keyOf([itemValue]));
+        }
+      }
+      if (left == null) return null;
+      charge(1);
+      return node.lookup.has(keyOf([left]))
+        ? true
+        : node.hasNull
+          ? null
+          : false;
+    }
+    let answer = false;
+    for (const item of node.items) {
+      charge(1);
+      answer = sqlOr(answer, compare(left, read(item), "="));
+      if (answer === true) break;
+    }
+    return answer;
+  }
   if (node.op === "like") return like(left, read(node.right), charge);
   if (node.op === "between")
     return sqlAnd(
@@ -476,10 +517,24 @@ export function queryTables(grid, sql, params = [], options = {}) {
   query.group = query.group.map((expr) => bind(expr));
   const bindPredicate = (node, aliases = false) => {
     visit(node, (expr) => Object.assign(expr, bind(expr, aliases)));
+    const pending = [node];
+    while (pending.length) {
+      const current = pending.pop();
+      if (!current || typeof current !== "object" || current.kind) continue;
+      if (current.op === "in")
+        current.indexed =
+          current.items.length >= 8 &&
+          current.items.every(
+            (item) => item.kind === "literal" && indexable(item.value),
+          );
+      for (const child of Object.values(current))
+        if (Array.isArray(child)) pending.push(...child);
+        else if (child && typeof child === "object") pending.push(child);
+    }
   };
   bindPredicate(query.where);
   bindPredicate(query.having, true);
-  query.order = query.order.map(({ expr, descending }) => {
+  query.order = query.order.map(({ expr, descending, nullsFirst }) => {
     if (expr.kind === "literal") {
       if (
         !Number.isInteger(expr.value) ||
@@ -497,7 +552,7 @@ export function queryTables(grid, sql, params = [], options = {}) {
           ? query.select[columns.indexOf(alias[0])]
           : bind(expr, true);
     }
-    return { expr, descending };
+    return { expr, descending, nullsFirst };
   });
   let grouped = query.group.length > 0;
   const outputExpressions = [
@@ -507,7 +562,15 @@ export function queryTables(grid, sql, params = [], options = {}) {
   ];
   outputExpressions.forEach((node) =>
     visit(node, (expr) => {
-      if (expr.kind === "aggregate") grouped = true;
+      if (expr.kind === "aggregate") {
+        grouped = true;
+        expr.cacheKey = JSON.stringify([
+          expr.fn,
+          expr.arg.kind,
+          expr.arg.name,
+          expr.distinct,
+        ]);
+      }
     }),
   );
   if (query.having && !grouped)
@@ -543,23 +606,39 @@ export function queryTables(grid, sql, params = [], options = {}) {
       throw new TypeError(`SQL source field ${name} contains ${value}`);
     return value;
   }
+  const aggregateCache = new WeakMap();
   function read(expr, bucket) {
     charge(1);
     if (expr.kind === "literal") return expr.value;
     if (expr.kind === "field")
       return bucket.length ? field(bucket[0], expr.name) : null;
+    let cache = aggregateCache.get(bucket);
+    if (!cache) {
+      cache = { values: new Map(), results: new Map() };
+      aggregateCache.set(bucket, cache);
+    }
+    if (!cache.results.has(expr.cacheKey))
+      cache.results.set(expr.cacheKey, aggregate(expr, bucket, cache));
+    return cache.results.get(expr.cacheKey);
+  }
+  function aggregate(expr, bucket, cache) {
     if (expr.fn === "COUNT" && expr.arg.kind === "star") return bucket.length;
-    let values = bucket
-      .map((entry) => field(entry, expr.arg.name))
-      .filter((v) => v != null);
-    if (expr.distinct) {
-      const seen = new Set();
-      values = values.filter((v) => {
-        const key = keyOf([v]);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+    const valueKey = JSON.stringify([expr.arg.name, expr.distinct]);
+    let values = cache.values.get(valueKey);
+    if (!values) {
+      values = bucket
+        .map((entry) => field(entry, expr.arg.name))
+        .filter((v) => v != null);
+      if (expr.distinct) {
+        const seen = new Set();
+        values = values.filter((v) => {
+          const key = keyOf([v]);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      cache.values.set(valueKey, values);
     }
     if (expr.fn === "COUNT") return values.length;
     if (["SUM", "AVG"].includes(expr.fn)) {
@@ -577,13 +656,25 @@ export function queryTables(grid, sql, params = [], options = {}) {
       return order * (expr.fn === "MAX" ? 1 : -1) >= 0 ? a : b;
     });
   }
-  const filtered = entries.filter(
-    (entry) =>
-      test(query.where, (expr) => read(expr, [entry]), charge) === true,
-  );
+  const filtered = query.where
+    ? entries.filter(
+        (entry) =>
+          test(query.where, (expr) => read(expr, [entry]), charge) === true,
+      )
+    : entries;
+  // Apply the output window before projection when no grouping, deduplication
+  // or sorting depends on omitted rows. Source reading and WHERE still run fully.
+  const windowed = !grouped && !query.distinct && !query.order.length;
   let buckets;
-  if (!grouped) buckets = filtered.map((entry) => [entry]);
-  else if (!query.group.length) buckets = [filtered];
+  if (!grouped) {
+    const rows = windowed
+      ? filtered.slice(
+          query.offset,
+          query.limit == null ? undefined : query.offset + query.limit,
+        )
+      : filtered;
+    buckets = rows.map((entry) => [entry]);
+  } else if (!query.group.length) buckets = [filtered];
   else {
     const groups = new Map();
     for (const entry of filtered) {
@@ -608,7 +699,8 @@ export function queryTables(grid, sql, params = [], options = {}) {
     results = results.filter((result) => {
       const key = keyOf(result.row);
       if (seen.has(key)) {
-        seen.get(key).bucket.push(...result.bucket);
+        const bucket = seen.get(key).bucket;
+        for (const entry of result.bucket) bucket.push(entry);
         return false;
       }
       // Keep a private bucket when DISTINCT merges drill-through records.
@@ -617,26 +709,28 @@ export function queryTables(grid, sql, params = [], options = {}) {
       return true;
     });
   }
-  results.sort((a, b) => {
-    for (let i = 0; i < query.order.length; i++) {
-      charge(1);
-      const av = a.sort[i],
-        bv = b.sort[i];
-      if (av == null || bv == null) {
-        if (av == null && bv == null) continue;
-        return av == null ? 1 : -1;
+  if (query.order.length)
+    results.sort((a, b) => {
+      for (let i = 0; i < query.order.length; i++) {
+        charge(1);
+        const av = a.sort[i],
+          bv = b.sort[i];
+        if (av == null || bv == null) {
+          if (av == null && bv == null) continue;
+          return (av == null ? 1 : -1) * (query.order[i].nullsFirst ? -1 : 1);
+        }
+        const order = compareScalars(av, bv);
+        if (order == null)
+          throw new TypeError("ORDER BY requires matching scalar types");
+        if (order) return order * (query.order[i].descending ? -1 : 1);
       }
-      const order = compareScalars(av, bv);
-      if (order == null)
-        throw new TypeError("ORDER BY requires matching scalar types");
-      if (order) return order * (query.order[i].descending ? -1 : 1);
-    }
-    return 0;
-  });
-  results = results.slice(
-    query.offset,
-    query.limit == null ? undefined : query.offset + query.limit,
-  );
+      return 0;
+    });
+  if (!windowed)
+    results = results.slice(
+      query.offset,
+      query.limit == null ? undefined : query.offset + query.limit,
+    );
   if (results.length > 10000)
     throw new RangeError("SQL result exceeds 10,000 rows; add LIMIT");
   const result = {
@@ -924,15 +1018,13 @@ export function localSQL() {
           return writeSQLResult(grid, result, options);
         },
         tables() {
-          return grid
-            .listTables()
-            .map((table) => ({
-              id: table.id,
-              name: table.name,
-              columns: Array.from({ length: table.c2 - table.c1 + 1 }, (_, i) =>
-                String(grid.getComputedValue(table.headerRow, table.c1 + i)),
-              ),
-            }));
+          return grid.listTables().map((table) => ({
+            id: table.id,
+            name: table.name,
+            columns: Array.from({ length: table.c2 - table.c1 + 1 }, (_, i) =>
+              String(grid.getComputedValue(table.headerRow, table.c1 + i)),
+            ),
+          }));
         },
       };
     },

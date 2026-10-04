@@ -139,6 +139,7 @@ if (location.hash.startsWith("#tg1.")) {
 if (!shared) grid.sheetName = t("title");
 $(".app").inert = true;
 const autosave = await installAutosave(grid, {
+  database: "tinyDatagrid-demo",
   formula: $("#formula"),
   key: `demo:${location.pathname}:${location.hash.startsWith("#tg1.") ? location.hash : "local"}`,
   status: (key) => {

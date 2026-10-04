@@ -1,0 +1,160 @@
+/* Optional shared SQL, analysis, object-browser and simulation components. */
+:is(.local-sql-dialog, .analysis-details, .simulation-dialog) {
+  box-sizing: border-box;
+  width: min(880px, calc(100vw - 32px));
+  max-height: 90dvh;
+  overflow: auto;
+  color: var(--text, var(--tg-text, #17221e));
+  background: var(--surface, var(--tg-panel, #fff));
+  border: 1px solid var(--line, var(--tg-border, #d3deea));
+  border-radius: 12px;
+  padding: 1rem;
+  font:
+    14px system-ui,
+    sans-serif;
+}
+:is(.local-sql-dialog, .analysis-details, .simulation-dialog)::backdrop {
+  background: #0006;
+}
+:is(.local-sql-dialog, .analysis-details, .simulation-dialog) [hidden] {
+  display: none !important;
+}
+:is(.local-sql-dialog, .analysis-details, .simulation-dialog)
+  :is(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
+:is(.local-sql-dialog, .analysis-details, .simulation-dialog)
+  :is(button, input, select) {
+  min-height: 32px;
+}
+.dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.analysis-controls {
+  display: grid;
+  gap: 6px;
+  margin-block: 8px;
+}
+.analysis-controls select {
+  width: 100%;
+}
+.source-table {
+  max-height: 55dvh;
+  overflow: auto;
+  margin-block: 12px;
+}
+.source-table table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.source-table :is(th, td) {
+  border: 1px solid var(--line, var(--tg-border, #d3deea));
+  padding: 6px;
+  max-width: 280px;
+  overflow-wrap: anywhere;
+}
+.source-table th {
+  background: var(--surface, var(--tg-panel, #fff));
+  position: sticky;
+  top: 0;
+}
+.simulation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block: 12px;
+}
+.simulation-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.simulation-controls input[type="number"] {
+  width: 120px;
+}
+.simulation-dialog canvas {
+  display: block;
+  width: min(100%, calc(55dvh * 4 / 3));
+  height: auto;
+  image-rendering: pixelated;
+  background: #141a30;
+  margin-block: 12px;
+  touch-action: manipulation;
+}
+.simulation-dialog progress {
+  width: 100%;
+  height: 12px;
+}
+.simulation-dialog output {
+  display: block;
+  min-height: 28px;
+}
+.simulation-dialog .tool-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+#sheetObjectList h4 {
+  font-size: 11px;
+  margin: 16px 0 6px;
+}
+.sheet-object {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border-bottom: 1px solid var(--line, var(--tg-border, #d3deea));
+  padding: 4px 0;
+}
+.sheet-object-open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  border-color: transparent;
+  background: transparent;
+  padding: 7px;
+  font-size: 12px;
+  text-align: left;
+}
+.sheet-object-open strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet-object-open span {
+  font:
+    10px ui-monospace,
+    monospace;
+}
+.local-sql-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+.local-sql-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.local-sql-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 7rem;
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+  margin-bottom: 0.75rem;
+}
+.local-sql-schema {
+  overflow-wrap: anywhere;
+}
+.local-sql-results {
+  max-height: 40vh;
+}

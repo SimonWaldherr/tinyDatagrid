@@ -8,7 +8,7 @@ PORT ?= 8080
 
 FORMAT_FILES := src demo test benchmarks scripts docs README.md package.json
 
-.PHONY: help run fmt fmt-check test check benchmark benchmark-large docs
+.PHONY: help run fmt fmt-check test check benchmark benchmark-large benchmark-sql docs release-check release-pack
 
 help:
 	@printf '%s\n' \
@@ -19,6 +19,9 @@ help:
 	  'make check           Check JavaScript syntax and run tests' \
 	  'make benchmark       Run recalculation benchmarks' \
 	  'make benchmark-large Run large-grid benchmarks' \
+	  'make benchmark-sql   Run local SQL benchmarks' \
+	  'make release-check   Check tests, types and the installed npm tarball' \
+	  'make release-pack    Validate and create the npm tarball in dist/' \
 	  'make docs            Regenerate the formula reference'
 
 run:
@@ -34,14 +37,22 @@ test:
 	$(NPM) test
 
 check:
-	@find src demo test benchmarks scripts -type f \( -name '*.js' -o -name '*.mjs' \) -exec sh -c 'for file do "$$0" --check "$$file" || exit; done' $(NODE) {} +
-	$(NPM) test
+	$(NPM) run check
 
 benchmark:
 	$(NPM) run benchmark
 
 benchmark-large:
 	$(NPM) run benchmark:large
+
+benchmark-sql:
+	$(NPM) run benchmark:sql
+
+release-check:
+	$(NPM) run release:check
+
+release-pack:
+	$(NPM) run release:pack
 
 docs:
 	$(NPM) run docs:formulas

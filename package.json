@@ -1,6 +1,6 @@
 {
   "name": "tiny-datagrid",
-  "description": "A dependency-free browser data grid with spreadsheet formulas, pivots, and a SQL client adapter",
+  "description": "A dependency-free browser spreadsheet and data grid with formulas, worksheets, pivots, charts, forms and local SQL",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -143,21 +143,103 @@
     "./form-ui": {
       "types": "./src/form-ui.d.ts",
       "import": "./src/form-ui.js"
+    },
+    "./sql-tools": {
+      "types": "./src/sql-tools.d.ts",
+      "import": "./src/sql-tools.js"
+    },
+    "./analysis-tools": {
+      "types": "./src/analysis-tools.d.ts",
+      "import": "./src/analysis-tools.js"
+    },
+    "./simulation-tools": {
+      "types": "./src/simulation-tools.d.ts",
+      "import": "./src/simulation-tools.js"
+    },
+    "./object-browser": {
+      "types": "./src/object-browser.d.ts",
+      "import": "./src/object-browser.js"
+    },
+    "./autosave": {
+      "types": "./src/autosave.d.ts",
+      "import": "./src/autosave.js"
+    },
+    "./sheet-growth": {
+      "types": "./src/sheet-growth.d.ts",
+      "import": "./src/sheet-growth.js"
+    },
+    "./sample-workbooks": {
+      "types": "./src/sample-workbooks.d.ts",
+      "import": "./src/sample-workbooks.js"
+    },
+    "./demo-i18n": {
+      "types": "./src/demo-i18n.d.ts",
+      "import": "./src/demo-i18n.js"
+    },
+    "./data-types": {
+      "types": "./src/data-types.d.ts",
+      "import": "./src/data-types.js"
+    },
+    "./demo-tools": {
+      "types": "./src/demo-tools.d.ts",
+      "import": "./src/demo-tools.js"
+    },
+    "./demo-tools.css": {
+      "types": "./src/style.d.ts",
+      "default": "./src/demo-tools.css"
     }
   },
   "files": [
     "src",
+    "demo",
     "README.md",
     "docs",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "sideEffects": [
     "**/*.css"
   ],
   "scripts": {
-    "test": "node test/test-lineage.mjs && node test/test-sql-materialize.mjs && node test/test-local-sql.mjs && node test/test-bi.mjs && node test/test-form-generator.mjs && node test/test-excel-safety.mjs && node test/test-formula-catalog.mjs && node scripts/formula-overview.mjs --check && node test/test.mjs && node test/test-functions.mjs && node test/test-calendar-colors.mjs && node test/test-data-types.mjs && node test/test-json.mjs && node test/test-arrays.mjs && node test/test-find.mjs && node test/test-editor-layout.mjs && node test/test-sheet-growth.mjs && node test/test-worksheets.mjs && node test/test-data-tools.mjs && node test/test-pivots.mjs && node test/test-rules.mjs",
+    "test": "node scripts/test.mjs",
     "benchmark": "node benchmarks/recalculation.mjs",
     "benchmark:large": "node --max-old-space-size=2048 benchmarks/large-grid.mjs",
-    "docs:formulas": "node scripts/formula-overview.mjs"
+    "benchmark:sql": "node benchmarks/local-sql.mjs",
+    "docs:formulas": "node scripts/formula-overview.mjs",
+    "test:types": "tsc -p test/tsconfig.json",
+    "test:package": "node scripts/package-smoke.mjs",
+    "check": "node scripts/check.mjs && npm test && npm run test:types",
+    "release:check": "npm run check && npm run test:package",
+    "release:pack": "npm run release:check && node scripts/pack.mjs",
+    "prepublishOnly": "npm run release:check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SimonWaldherr/tinyDatagrid.git"
+  },
+  "homepage": "https://github.com/SimonWaldherr/tinyDatagrid#readme",
+  "bugs": {
+    "url": "https://github.com/SimonWaldherr/tinyDatagrid/issues"
+  },
+  "keywords": [
+    "spreadsheet",
+    "data-grid",
+    "datagrid",
+    "sql",
+    "pivot",
+    "charts",
+    "vanilla-js",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.13",
+    "typescript": "7.0.2"
   }
 }

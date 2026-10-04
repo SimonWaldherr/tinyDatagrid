@@ -2487,7 +2487,7 @@ export class TinyDatagrid {
     return () => this.listeners.get(type)?.delete(fn);
   }
   emit(type, detail) {
-    if (this._destroyed) return;
+    if (this._destroyed && type !== "destroy") return;
     this.listeners.get(type)?.forEach((fn) => fn(detail));
     this.el.dispatchEvent(new CustomEvent(`tinygrid:${type}`, { detail }));
   }

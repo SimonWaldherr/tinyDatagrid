@@ -49,6 +49,64 @@ export type SQLPendingChanges = {
 };
 
 export type CellRange = { r1: number; c1: number; r2: number; c2: number };
+export type NumberFormat =
+  string | ({ type?: string } & Record<string, unknown>);
+export interface GridCell {
+  raw: unknown;
+  style?: Partial<CSSStyleDeclaration>;
+  numberFormat?: NumberFormat | null;
+  valueType?: string;
+  className?: string;
+  [key: string]: unknown;
+}
+export interface WorkbookCell {
+  row: number;
+  col: number;
+  value?: unknown;
+  formula?: string;
+  style?: Partial<CSSStyleDeclaration>;
+  numberFormat?: NumberFormat | null;
+  valueType?: string;
+  [key: string]: unknown;
+}
+export interface WorkbookSheet {
+  id?: string;
+  name?: string;
+  cells: WorkbookCell[];
+  [key: string]: unknown;
+}
+export interface Workbook {
+  format: "tinyDatagrid-workbook";
+  version: number;
+  activeSheetId?: string;
+  sheets?: WorkbookSheet[];
+  cells?: WorkbookCell[];
+  [key: string]: unknown;
+}
+export interface WorkbookOptions {
+  values?: boolean;
+  formulas?: boolean;
+  formatting?: boolean;
+  dimensions?: boolean;
+  computedValues?: boolean;
+}
+export interface ExportOptions {
+  range?: CellRange;
+  computed?: boolean;
+}
+export interface WorkbookImportResult {
+  cells: number;
+  rows: number;
+  columns: number;
+}
+export interface ColorScaleRule {
+  type: "colorScale";
+  range: CellRange;
+  min?: number;
+  max?: number;
+  colors?: string[];
+  stopIfTrue?: boolean;
+}
 /** Synchronous host-provided callback. Ranges arrive as two-dimensional arrays. */
 export type SpreadsheetFunction = (...args: any[]) => unknown;
 export type SpreadsheetFunctions = Record<string, SpreadsheetFunction>;
@@ -137,6 +195,94 @@ export type SpillRange = {
 export class TinyDatagrid {
   constructor(container: string | Element, options?: TinyDatagridOptions);
   [key: string]: any;
+  rowCount: number;
+  colCount: number;
+  sheetName: string;
+  selection: CellRange;
+  anchor: { row: number; col: number };
+  el: HTMLElement;
+  editor: HTMLTextAreaElement;
+  scroll: HTMLElement;
+  engine: FormulaEngine;
+  conditionalFormats: Array<ConditionalRule | ColorScaleRule>;
+  validationRules: ValidationRule[];
+  hiddenRows: Set<number>;
+  hiddenColumns: Set<number>;
+  getCell(row: number, col: number): GridCell;
+  getRawValue(row: number, col: number): unknown;
+  getComputedValue(row: number, col: number): unknown;
+  setCell(
+    row: number,
+    col: number,
+    value: unknown,
+    meta?: Partial<GridCell>,
+  ): boolean;
+  isCellReadOnly(row: number, col: number): boolean;
+  ensureSize(rows: number, columns: number): boolean;
+  load(data: unknown[][], startRow?: number, startCol?: number): void;
+  select(row: number, col: number, extend?: boolean): void;
+  goTo(row: number, col: number): void;
+  edit(row?: number, col?: number, initial?: string | null): void;
+  commitEdit(cancel?: boolean): false | void;
+  emit(type: string, detail?: unknown): void;
+  setVariable(name: string, value: unknown): void;
+  getVariable(name: string): unknown;
+  formatSelection(format: NumberFormat | null): void;
+  formatValue(value: unknown, format?: NumberFormat | null): string;
+  setRowHeight(row: number, height: number): void;
+  setColumnWidth(col: number, width: number): void;
+  autoFitRow(row: number): number;
+  autoFitColumn(col: number): number;
+  hideRow(row: number): boolean;
+  hideColumn(col: number): boolean;
+  showAllRows(): boolean;
+  showAllColumns(): boolean;
+  insertRow(row: number): this | { row: number; clientId: string };
+  insertColumn(col: number): this | false;
+  deleteRow(row: number): boolean;
+  deleteColumn(col: number): boolean;
+  clearRow(row: number): boolean;
+  clearColumn(col: number): boolean;
+  setColumnFilter(col: number, values: unknown[] | null): boolean;
+  clearFilters(): boolean;
+  sortTable(col: number, direction?: "asc" | "desc"): boolean;
+  getUsedRange(): CellRange;
+  toArray(range?: CellRange, computed?: boolean): unknown[][];
+  toRecords(options?: {
+    headerRow?: number;
+    startRow?: number;
+    startCol?: number;
+    endRow?: number;
+    endCol?: number;
+    visibleOnly?: boolean;
+  }): Record<string, unknown>[];
+  pivot(config: Record<string, unknown>): ReturnType<typeof PivotEngine.pivot>;
+  exportCSV(options?: ExportOptions & { delimiter?: string }): string;
+  exportTSV(options?: ExportOptions): string;
+  exportHTML(options?: ExportOptions): string;
+  exportMarkdown(options?: ExportOptions): string;
+  exportJSON(
+    options?: ExportOptions & { headerRow?: number },
+  ): Record<string, unknown>[];
+  exportWorkbook(options?: WorkbookOptions): Workbook;
+  importWorkbook(
+    input: Workbook | string,
+    options?: WorkbookOptions & {
+      replace?: boolean;
+      startRow?: number;
+      startCol?: number;
+    },
+  ): WorkbookImportResult | false;
+  importJSON(
+    input: unknown,
+    options?: DelimitedImportOptions & { headers?: string[] },
+  ): { rows: number; headers: string[] } | WorkbookImportResult | false;
+  importHTML(markup: string, options?: DelimitedImportOptions): number;
+  importMarkdown(markdown: string, options?: DelimitedImportOptions): number;
+  importSpreadsheetXML(
+    xml: string,
+    options?: DelimitedImportOptions,
+  ): number | WorkbookImportResult | false;
   getCalculationValue(row: number, col: number): unknown;
   getCalculationState(options?: { settle?: boolean }): {
     phase: "calculating" | "pending" | "ready";
@@ -164,7 +310,7 @@ export class TinyDatagrid {
   feature<T = any>(name: string): T | undefined;
   removePlugin(name: string): boolean;
   setFreezePanes(panes?: { rows?: number; columns?: number }): this;
-  setConditionalFormats(rules?: ConditionalRule[]): this;
+  setConditionalFormats(rules?: Array<ConditionalRule | ColorScaleRule>): this;
   setValidationRules(rules?: ValidationRule[]): this;
   readonly readOnly: boolean;
   readonly canUndo: boolean;
@@ -305,7 +451,10 @@ export class TinyDatagrid {
     options?: Omit<FindOptions, "scope" | "limit">,
   ): { count: number; cells: number };
   /** The whole result of the formula in a cell (what `A1#` reads); a one-cell range for ordinary cells. */
-  getSpill(row: number, col: number): unknown[][] | string;
+  getSpill(
+    row: number,
+    col: number,
+  ): unknown[][] | import("./values.js").FormulaError;
   /** Rectangles currently filled by formulas that return several cells. */
   getSpillRanges(): SpillRange[];
   loadRecords(
