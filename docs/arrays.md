@@ -24,11 +24,11 @@ outline mark the range (`tg-spilled`, `tg-spill-t/b/l/r`; override
 A spill needs empty space. Otherwise the formula cell shows an error, with the
 reason in its tooltip, and dependents see the error too:
 
-| Error | Cause |
-| --- | --- |
-| `#SPILL! Blocked by B3` | Another cell in the range has content |
-| `#SPILL! Overlaps C1` | The range collides with an earlier spill (the one that starts first in reading order keeps the cells) |
-| `#SPILL! Result too large` | More than `maxSpillCells` values (default 100,000) |
+| Error                      | Cause                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `#SPILL! Blocked by B3`    | Another cell in the range has content                                                                 |
+| `#SPILL! Overlaps C1`      | The range collides with an earlier spill (the one that starts first in reading order keeps the cells) |
+| `#SPILL! Result too large` | More than `maxSpillCells` values (default 100,000)                                                    |
 
 Clearing the blocking cell restores the spill. Typing into a spilled cell blocks
 its own spill. The sheet grows automatically when a result extends past the last
@@ -103,11 +103,11 @@ and custom functions that return arrays.
 ## API
 
 ```js
-grid.setCell(0, 0, '=SEQUENCE(4; 2)');
-grid.getComputedValue(0, 0);   // 1, the formula cell's own value
-grid.getSpill(0, 0);           // [[1, 2], [3, 4], [5, 6], [7, 8]]
-grid.getSpillRanges();         // [{ row: 0, col: 0, rows: 4, cols: 2 }]
-new TinyDatagrid('#grid', { maxSpillCells: 20000 });
+grid.setCell(0, 0, "=SEQUENCE(4; 2)");
+grid.getComputedValue(0, 0); // 1, the formula cell's own value
+grid.getSpill(0, 0); // [[1, 2], [3, 4], [5, 6], [7, 8]]
+grid.getSpillRanges(); // [{ row: 0, col: 0, rows: 4, cols: 2 }]
+new TinyDatagrid("#grid", { maxSpillCells: 20000 });
 ```
 
 Evaluation stays incremental: a change recalculates the cells that depend on it,

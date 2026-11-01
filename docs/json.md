@@ -22,7 +22,7 @@ text, give the cell or column the type `text`
 (`setCell(row, col, value, { valueType: 'text' })` or `columnTypes`).
 
 - **Numbers keep the loss-aware rules.** JSON containing integers outside the
-  safe range or decimals that would lose digits is *not* accepted as JSON;
+  safe range or decimals that would lose digits is _not_ accepted as JSON;
   `JSON.PARSE` returns `#NUM!` for it. Write such numbers as strings.
 - **Nested data from imports.** Importing a JSON file (or NDJSON) keeps nested
   objects and arrays in their cells as JSON values.
@@ -30,7 +30,7 @@ text, give the cell or column the type `text`
   example from a SQL result) coerce text into JSON values.
 - **Comparison and text.** `=A1=B1` compares two JSON values by content, ignoring
   spacing and key order in the source text. `A1&""` gives the compact JSON text.
-- **List context.** Where a function expects a range, a JSON *array* acts like a
+- **List context.** Where a function expects a range, a JSON _array_ acts like a
   column of its elements: `SUM(JSON.GET(A1;"items[*].price"))`,
   `TEXTJOIN(", ";TRUE;tags)`, `COUNTA`, `SORT`, `UNIQUE`, `FILTER`, `MAP`, `MATCH`
   and `XLOOKUP` all accept it. JSON objects count as one item.
@@ -45,19 +45,19 @@ text, give the cell or column the type `text`
 `JSON.GET`, `JSON.HAS`, `JSON.SET` and the other path functions share one syntax.
 A leading `$` is optional.
 
-| Path | Meaning |
-| --- | --- |
-| `name`, `address.city`, `$.address.city` | Object members |
-| `items[0]`, `items[-1]`, `items.0` | Array element; negative counts from the end |
-| `["odd key"]`, `['a.b']` | Member name that needs quoting |
-| `items[*].sku`, `items.*` | Every element / member |
-| `items[1:3]`, `items[-2:]`, `items[::2]` | Slices (start, end, step) |
-| `items[0,2]`, `["a","b"]` | Several indexes or names |
-| `$..price` | Any depth ("recursive descent") |
-| `items[?(@.qty > 1)]` | Filter: `@` is the element; operators `== != < <= > >=`, `&&`, `\|\|`, `!` |
-| `items[?(@.tags)]` | Filter by existence |
-| `items.length`, `name.length` | Length of an array or text (unless a member has that name) |
-| `/items/0/sku` | JSON Pointer (RFC 6901) |
+| Path                                     | Meaning                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------------------- |
+| `name`, `address.city`, `$.address.city` | Object members                                                             |
+| `items[0]`, `items[-1]`, `items.0`       | Array element; negative counts from the end                                |
+| `["odd key"]`, `['a.b']`                 | Member name that needs quoting                                             |
+| `items[*].sku`, `items.*`                | Every element / member                                                     |
+| `items[1:3]`, `items[-2:]`, `items[::2]` | Slices (start, end, step)                                                  |
+| `items[0,2]`, `["a","b"]`                | Several indexes or names                                                   |
+| `$..price`                               | Any depth ("recursive descent")                                            |
+| `items[?(@.qty > 1)]`                    | Filter: `@` is the element; operators `== != < <= > >=`, `&&`, `\|\|`, `!` |
+| `items[?(@.tags)]`                       | Filter by existence                                                        |
+| `items.length`, `name.length`            | Length of an array or text (unless a member has that name)                 |
+| `/items/0/sku`                           | JSON Pointer (RFC 6901)                                                    |
 
 A path that names one location (no wildcard, slice, filter or `..`) returns that
 value, or `#N/A` when it is missing. Any other path returns a JSON array with
@@ -76,30 +76,30 @@ Arguments accept a JSON value, JSON text, or a cell holding either.
 Results that are objects or arrays are JSON values; tables are ranges that fill
 neighboring cells (see [dynamic arrays](arrays.md)).
 
-| Function | Result |
-| --- | --- |
-| `JSON.PARSE(text)` | JSON value or scalar; invalid text gives `#VALUE!` |
-| `JSON.STRINGIFY(value; [indent])` | JSON text; a range becomes an array of arrays; indent is 0–10 or a string |
-| `JSON.VALID(text)` | `TRUE` when the text parses |
-| `JSON.TYPE(value; [path])` | `object`, `array`, `string`, `number`, `boolean` or `null` |
-| `JSON.GET(json; path; [default])` | Value at a path (see above) |
-| `JSON.HAS(json; path)` | Whether the path exists |
-| `JSON.KEYS(json; [path])` | Object keys (or array indexes, zero-based) as a column |
-| `JSON.VALUES(json; [path])` | Values as a column |
-| `JSON.ENTRIES(json; [path])` | Key/value pairs as two columns |
-| `JSON.LENGTH(json; [path])` | Number of elements, keys or characters |
-| `JSON.SET(json; path; value; …)` | Copy with values set; missing objects and arrays are created |
-| `JSON.REMOVE(json; path; …)` | Copy without the given members or elements |
-| `JSON.MERGE(json; json; …)` | Deep merge of objects; later arrays and scalars replace earlier ones |
-| `JSON.OBJECT(key; value; …)` | Object from pairs, from a two-column range, or from a key range and a value range |
-| `JSON.ARRAY(values…)` | Array; ranges are flattened, nested JSON stays nested |
-| `JSON.CONCAT(array; more…)` | Joins arrays; other values are appended |
-| `JSON.LOOKUP(value; array; key_path; [result_path]; [not_found])` | First element whose key equals the value, or a value inside it |
-| `JSON.SORT(array; [path]; [order])` | Stable sort; order `-1` is descending; missing keys sort last |
-| `JSON.UNIQUE(array; [path])` | Removes duplicates by content or by the value at a path |
-| `JSON.TABLE(json; [columns]; [header]; [flatten])` | Array of objects (or arrays, or an object) as a table |
-| `JSON.FROMTABLE(range; [header])` | Range to an array of objects; the first row supplies the keys |
-| `JSON.FLATTEN(json; [max_depth])` | Every leaf as a `path` / `value` row |
+| Function                                                          | Result                                                                            |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `JSON.PARSE(text)`                                                | JSON value or scalar; invalid text gives `#VALUE!`                                |
+| `JSON.STRINGIFY(value; [indent])`                                 | JSON text; a range becomes an array of arrays; indent is 0–10 or a string         |
+| `JSON.VALID(text)`                                                | `TRUE` when the text parses                                                       |
+| `JSON.TYPE(value; [path])`                                        | `object`, `array`, `string`, `number`, `boolean` or `null`                        |
+| `JSON.GET(json; path; [default])`                                 | Value at a path (see above)                                                       |
+| `JSON.HAS(json; path)`                                            | Whether the path exists                                                           |
+| `JSON.KEYS(json; [path])`                                         | Object keys (or array indexes, zero-based) as a column                            |
+| `JSON.VALUES(json; [path])`                                       | Values as a column                                                                |
+| `JSON.ENTRIES(json; [path])`                                      | Key/value pairs as two columns                                                    |
+| `JSON.LENGTH(json; [path])`                                       | Number of elements, keys or characters                                            |
+| `JSON.SET(json; path; value; …)`                                  | Copy with values set; missing objects and arrays are created                      |
+| `JSON.REMOVE(json; path; …)`                                      | Copy without the given members or elements                                        |
+| `JSON.MERGE(json; json; …)`                                       | Deep merge of objects; later arrays and scalars replace earlier ones              |
+| `JSON.OBJECT(key; value; …)`                                      | Object from pairs, from a two-column range, or from a key range and a value range |
+| `JSON.ARRAY(values…)`                                             | Array; ranges are flattened, nested JSON stays nested                             |
+| `JSON.CONCAT(array; more…)`                                       | Joins arrays; other values are appended                                           |
+| `JSON.LOOKUP(value; array; key_path; [result_path]; [not_found])` | First element whose key equals the value, or a value inside it                    |
+| `JSON.SORT(array; [path]; [order])`                               | Stable sort; order `-1` is descending; missing keys sort last                     |
+| `JSON.UNIQUE(array; [path])`                                      | Removes duplicates by content or by the value at a path                           |
+| `JSON.TABLE(json; [columns]; [header]; [flatten])`                | Array of objects (or arrays, or an object) as a table                             |
+| `JSON.FROMTABLE(range; [header])`                                 | Range to an array of objects; the first row supplies the keys                     |
+| `JSON.FLATTEN(json; [max_depth])`                                 | Every leaf as a `path` / `value` row                                              |
 
 `JSON.GET`, `JSON.HAS`, `JSON.TYPE`, `JSON.VALID`, `JSON.LENGTH` and
 `JSON.PARSE` also work on ranges and return one result per cell.
@@ -145,12 +145,12 @@ The tools are reusable modules; see [demo tools](demo-features.md).
 ## For host applications
 
 ```js
-import { JSONValue, queryJSON, setJSON, mergeJSON } from 'tiny-datagrid/json';
+import { JSONValue, queryJSON, setJSON, mergeJSON } from "tiny-datagrid/json";
 
-grid.setCell(0, 0, { name: 'Ann', tags: ['a'] });   // objects and arrays are accepted
-const value = grid.getComputedValue(0, 0);          // JSONValue
-value.value;                                        // { name: 'Ann', tags: ['a'] }
-queryJSON(value.value, 'tags[0]');                  // { definite: true, found: true, value: 'a' }
+grid.setCell(0, 0, { name: "Ann", tags: ["a"] }); // objects and arrays are accepted
+const value = grid.getComputedValue(0, 0); // JSONValue
+value.value; // { name: 'Ann', tags: ['a'] }
+queryJSON(value.value, "tags[0]"); // { definite: true, found: true, value: 'a' }
 ```
 
 `getComputedValue` returns a `JSONValue` for JSON cells; use `.value` for the plain

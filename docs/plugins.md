@@ -5,12 +5,16 @@ per grid; workbook metadata cannot enable plugins or database access. Import
 local files from `src/` when using the repository directly.
 
 ```js
-import TinyDatagrid from 'tiny-datagrid';
-import { freezePanes, conditionalFormatting, dataValidation } from 'tiny-datagrid/features';
+import TinyDatagrid from "tiny-datagrid";
+import {
+  freezePanes,
+  conditionalFormatting,
+  dataValidation,
+} from "tiny-datagrid/features";
 
-const grid = new TinyDatagrid('#sheet', {
+const grid = new TinyDatagrid("#sheet", {
   virtualization: true,
-  plugins: [freezePanes(), conditionalFormatting(), dataValidation()]
+  plugins: [freezePanes(), conditionalFormatting(), dataValidation()],
 });
 ```
 
@@ -40,11 +44,14 @@ Selection outlines are clipped separately in each frozen/scrolling pane.
 ## Conditional formatting
 
 ```js
-grid.setConditionalFormats([{
-  range: { r1: 1, c1: 2, r2: 100, c2: 2 },
-  operator: 'lt', value: 0,
-  style: { color: 'var(--tg-error)', backgroundColor: 'var(--tg-error-bg)' }
-}]);
+grid.setConditionalFormats([
+  {
+    range: { r1: 1, c1: 2, r2: 100, c2: 2 },
+    operator: "lt",
+    value: 0,
+    style: { color: "var(--tg-error)", backgroundColor: "var(--tg-error-bg)" },
+  },
+]);
 ```
 
 Install `conditionalFormatting()` (name `conditionalFormatting`). Rules use
@@ -63,20 +70,36 @@ implemented in this first rule API.
 ## Data validation
 
 ```js
-grid.setValidationRules([{
-  range: { r1: 1, c1: 0, r2: 100, c2: 0 },
-  type: 'integer', min: 0, max: 100,
-  allowEmpty: false,
-  message: 'Enter a whole number between 0 and 100.'
-}]);
-grid.on('validationerror', ({ row, col, value, message }) => showError(message));
+grid.setValidationRules([
+  {
+    range: { r1: 1, c1: 0, r2: 100, c2: 0 },
+    type: "integer",
+    min: 0,
+    max: 100,
+    allowEmpty: false,
+    message: "Enter a whole number between 0 and 100.",
+  },
+]);
+grid.on("validationerror", ({ row, col, value, message }) =>
+  showError(message),
+);
 ```
 
 Install `dataValidation()` (name `validation`). Rule types:
 
 - `number` / `integer`: optional inclusive `min` and `max`.
 - `textLength`: Unicode code-point count with optional `min` and `max`.
-- `list`: `values: ['Open', 'Closed']` (compares scalar text representations).
+- `list`: `values: ['Open', 'Closed']` (compares scalar text representations). Add the
+  optional `listDropdown()` plugin (`tiny-datagrid/list-dropdown`) to offer the values: the
+  active cell shows an arrow, and a click on it or Alt+Down opens a menu (arrow keys,
+  Home/End, type-ahead, Enter and Escape). Cells with a list rule carry the class
+  `tg-has-list`; `listChoices(grid, row, col)` returns their values. Choosing a value is
+  an ordinary edit, so it is validated and undoable.
+- `json`: `kind: 'object' | 'array'` accepts only JSON of that kind.
+
+The [rule tools](demo-features.md#highlighting-and-input-rules) add dialogs for this and for
+conditional formatting: `setValidation(grid, rule)` replaces earlier rules in the cells of its range
+(`subtractRange` keeps the remainder) so overlapping rules do not pile up.
 
 Empty values are allowed unless `allowEmpty: false`. Rules validate **input**,
 not results of future formula calculations. `allowFormula: true` explicitly
@@ -94,17 +117,17 @@ rule ranges automatically: ranges remain absolute grid coordinates.
 ## Worksheets
 
 ```js
-import { worksheets } from 'tiny-datagrid/worksheets';
+import { worksheets } from "tiny-datagrid/worksheets";
 grid.use(worksheets());
-const sheets = grid.feature('worksheets');
-const id = sheets.add('Forecast');
+const sheets = grid.feature("worksheets");
+const id = sheets.add("Forecast");
 sheets.select(id);
-sheets.rename(id, 'Forecast 2027');
+sheets.rename(id, "Forecast 2027");
 console.log(sheets.list()); // [{ id, name, color, hidden }, ...] in tab order
-const copy = sheets.duplicate(id);      // "Forecast 2027 (2)", inserted after the source
-sheets.move(copy, 0);                   // reorder (zero-based, hidden sheets count)
-sheets.setColor(copy, '#eb6834');       // tab color, or null to clear it
-sheets.setHidden(copy, true);           // hide a tab; one sheet always stays visible
+const copy = sheets.duplicate(id); // "Forecast 2027 (2)", inserted after the source
+sheets.move(copy, 0); // reorder (zero-based, hidden sheets count)
+sheets.setColor(copy, "#eb6834"); // tab color, or null to clear it
+sheets.setHidden(copy, true); // hide a tab; one sheet always stays visible
 // sheets.remove(id); // At least one sheet must remain.
 ```
 
@@ -133,9 +156,9 @@ Removing the plugin leaves the currently selected sheet in the core grid.
 ## IndexedDB storage
 
 ```js
-import { indexedDBStorage } from 'tiny-datagrid/indexeddb';
-grid.use(indexedDBStorage({ key: 'invoice-123' }));
-const storage = grid.feature('indexedDB');
+import { indexedDBStorage } from "tiny-datagrid/indexeddb";
+grid.use(indexedDBStorage({ key: "invoice-123" }));
+const storage = grid.feature("indexedDB");
 await storage.save();
 await storage.restore(); // false if no saved document exists
 await storage.clear();
@@ -184,14 +207,13 @@ callback invocations, and separately measures the edit with history enabled.
 [Recorded run](performance.json): Node on Apple M2 Max, no DOM, one measured run
 per size (not a statistical browser benchmark).
 
-| Cells | Incremental | Full recalculation | Edit with history | Recomputed counted formulas |
-| ---: | ---: | ---: | ---: | ---: |
-| 30,000 | 2.00 ms | 37.12 ms | 15.73 ms | 1 / 10,000 |
-| 150,000 | 8.49 ms | 192.60 ms | 95.82 ms | 1 / 50,000 |
+|   Cells | Incremental | Full recalculation | Edit with history | Recomputed counted formulas |
+| ------: | ----------: | -----------------: | ----------------: | --------------------------: |
+|  30,000 |     2.00 ms |           37.12 ms |          15.73 ms |                  1 / 10,000 |
+| 150,000 |     8.49 ms |          192.60 ms |          95.82 ms |                  1 / 50,000 |
 
 The temporary comparison snapshots for history still cost O(sheet size).
 The numbers separate this cost from dependency-based calculation savings.
-
 
 ## External variables and recalculation
 
@@ -202,13 +224,16 @@ precedence over a local variable of the same name. Names are case-sensitive and
 referenced with `@name`; an optional leading `@` is accepted by setters.
 
 ```js
-const grid = new TinyDatagrid('#sheet', {
-  externalVariables: { vat: 0.19 }
+const grid = new TinyDatagrid("#sheet", {
+  externalVariables: { vat: 0.19 },
 });
-grid.load([['Net', 'Gross'], [100, '=A2*(1+@vat)']]);
-const select = document.querySelector('#vat');
-select.addEventListener('change', () => {
-  grid.setExternalVariable('vat', Number(select.value));
+grid.load([
+  ["Net", "Gross"],
+  [100, "=A2*(1+@vat)"],
+]);
+const select = document.querySelector("#vat");
+select.addEventListener("change", () => {
+  grid.setExternalVariable("vat", Number(select.value));
 });
 ```
 
@@ -219,10 +244,10 @@ the general-purpose demo does not include a domain-specific scenario control.
 
 ```js
 grid.setExternalVariables({ vat: 0.07, discount: 0.1 }); // One refresh.
-grid.setExternalVariable('vat', 0.19, { recalculate: false });
+grid.setExternalVariable("vat", 0.19, { recalculate: false });
 grid.recalculate({ full: false }); // Refresh only invalidated results.
-grid.recalculate();              // Clear all cached results and refresh.
-grid.removeExternalVariable('vat'); // Falls back to the sheet-local value.
+grid.recalculate(); // Clear all cached results and refresh.
+grid.removeExternalVariable("vat"); // Falls back to the sheet-local value.
 ```
 
 `recalculate: false` defers rendering, but invalidates cached dependencies
@@ -239,29 +264,61 @@ explicit full `recalculate()`.
 
 ## Pivot tables inside the sheet
 
+A pivot inserted into the sheet stays connected to its source. The sheet keeps the
+definition (source, fields, aggregates, scope and destination), the result is drawn
+in ordinary cells, and both follow the source and the sheet as they change.
+
 ```js
-import { sheetPivots } from 'tiny-datagrid/pivots';
+import { sheetPivots } from "tiny-datagrid/pivots";
 grid.use(sheetPivots());
-const pivots = grid.feature('pivots');
+const pivots = grid.feature("pivots");
 const id = pivots.insert({
-  source: { r1: 0, c1: 0, r2: 100, c2: 3 }, // First row contains unique headers.
-  target: { row: 0, col: 6 },                // G1, zero-based coordinates.
+  table: "table1", // follow a table; or use `source: { r1, c1, r2, c2 }`
+  target: { row: 0, col: 6 }, // G1, zero-based coordinates.
   config: {
-    rows: ['Category'],
-    values: [{ field: 'Revenue', aggregate: 'sum', as: 'Revenue' }]
-  }
+    rows: ["Category"],
+    values: [{ field: "Revenue", aggregate: "sum", as: "Revenue" }],
+  },
 });
-grid.setCell(1, 9, '=H2*1.19'); // J2 references a computed pivot result.
-// pivots.remove(id);          // Removes only that pivot's result cells.
+grid.setCell(1, 9, "=H2*1.19"); // J2 references a computed pivot result.
+
+// Change the settings later; the result resizes, and undo restores the previous one.
+pivots.update(id, {
+  config: {
+    rows: ["Region"],
+    columns: ["Year"],
+    values: [{ field: "Revenue", aggregate: "avg" }],
+  },
+});
+pivots.update(id, { target: { row: 0, col: 10 } }); // move the result
+pivots.update(id, { table: "table2" }); // use another table as source
+pivots.update(id, { analysis: { scope: "visible" } }); // aggregate the visible rows only
+pivots.recalculate(id); // recalculate now (all pivots without an id)
+pivots.at(1, 7); // the pivot a cell belongs to, or null
+pivots.get(id); // its definition, output range and error
+// pivots.remove(id);                        // Removes only that pivot's result cells.
 ```
 
-The demo inspector offers **Insert into sheet** using the selected destination
-cell and current pivot field settings, and **Remove pivot** for the selected
-result. Source and destination must be separate. The source range is explicit,
-includes its header row, and remains fixed; extending a source table does not
-automatically extend this range. Inserted pivots aggregate all source rows,
-independently of UI filters/hidden rows; optional serializable `config.filters`
-apply data filters. Empty source rows are skipped.
+**Source.** `table` binds the pivot to a table by id. The pivot then follows that
+table: rows appended under it (typing directly below a table extends the table; set
+the grid option `tableAutoExpand: false` to turn that off), rows or columns inserted or
+deleted, and the table moving all update the pivot's source. `source` is a fixed range
+that includes its header row; it shifts with inserted and deleted rows and columns but
+does not grow by itself. `update(id, { table: null })` keeps the current range as a
+fixed source, and `update(id, { table: 'table1' })` binds it again. Source and
+destination must be separate. If the table is removed, the last known range is kept.
+
+**Changing a pivot.** `update(id, changes)` accepts any of `config`, `analysis`, `target`,
+`table` and `source`; settings that are left out stay as they are. It validates like
+`insert()`, throws instead of half-applying (an occupied destination, unknown fields or
+aggregates, a read-only grid), and is one undo step. The destination of a pivot may
+overlap its own current result. Sorting the source table only changes the order of the
+groups.
+
+By default inserted pivots aggregate all source rows independently of UI visibility.
+Set `analysis` to use visible or captured selected rows (see Linked analysis below); the
+demo passes its selected scope. Optional serializable `config.filters` apply additional
+data filters. Empty source rows are skipped.
 
 Results are real sheet cells: formulas, ranges, and cross-sheet references can
 read them. They refresh on calculation/render when source dependencies change,
@@ -269,15 +326,20 @@ including formulas depending on external variables. Output grows or shrinks
 with the groups, and downstream formulas are invalidated when results change.
 Positions refer to the current group order (first occurrence), not to a permanent
 group identity; use a lookup when a formula should follow a specific group.
+Without column fields the value column is headed by its `as` name; with column fields
+each heading reads `<column value> · <value name>`.
 
-Result cells are protected against direct edits. Remove the pivot to edit that
-area. A blocked expansion yields `#SPILL!` at the pivot anchor and never overwrites
-occupied cells. Clearing the conflicting cell allows recalculation to recover.
-Invalid source fields yield `#REF!`; circular source/result dependencies yield
-`#CYCLE!`. A pivot source cannot directly contain another pivot's output. Pivot
-rules use absolute coordinates and do not automatically move on row/column
-insertion, deletion, or sorting; reposition/recreate the pivot after structural
-changes to its source/destination.
+Result cells are protected against direct edits: typing over them is refused, and
+Enter, F2 or a double-click on one emits `editblocked` (`{ row, col, pivot }`) so a host
+can show the pivot's settings. Remove the pivot to edit that area. A blocked expansion
+yields `#SPILL!` at the pivot anchor and never overwrites occupied cells. Clearing the
+conflicting cell allows recalculation to recover. Invalid source fields yield `#REF!`;
+circular source/result dependencies yield `#CYCLE!`. A pivot source cannot directly
+contain another pivot's output.
+
+Result cells carry the classes `tg-pivot` (all of them), `tg-pivot-head` (the first row) and
+`tg-pivot-t/b/l/r` (the outer edges), and a tooltip that names the source. Override
+`--tg-pivot`, `--tg-pivot-head` and `--tg-pivot-line` to restyle them.
 
 Definitions and generated values are included in workbook export, share links,
 and per-sheet history. With the plugin disabled, saved result values remain a
@@ -285,6 +347,14 @@ static snapshot. Re-enable `sheetPivots()` to resume calculation. Worksheets als
 calculate inactive-sheet pivots when formulas reference them. `list()` returns
 pivot IDs, configurations, output ranges, and current errors. The existing
 `grid.pivot(config)` API still returns a standalone pivot without inserting cells.
+
+In the demo, select any result cell to see `Pivot · source …` in the status bar. A
+double-click, Enter or F2 on the result, the **Pivot settings** entry of the cell menu,
+or the ribbon's Pivot button (which reads **Pivot settings** while a result is selected)
+opens the analysis dialog with that pivot's fields, aggregate, source table, destination
+and scope. **Apply changes** updates the pivot in the sheet; **Create a new pivot** leaves
+the edit mode. The cell menu also offers **Refresh pivot**, **Source records** and
+**Remove pivot**.
 
 ## Moving cells and following references
 
@@ -345,10 +415,14 @@ caret while typing. Custom documentation can be supplied via
 
 ```js
 const options = {
-  functions: { DOUBLE: value => value * 2 },
+  functions: { DOUBLE: (value) => value * 2 },
   functionHelp: {
-    DOUBLE: { signature: 'DOUBLE(value)', de: 'Verdoppelt einen Wert.', en: 'Doubles a value.' }
-  }
+    DOUBLE: {
+      signature: "DOUBLE(value)",
+      de: "Verdoppelt einen Wert.",
+      en: "Doubles a value.",
+    },
+  },
 };
 ```
 
@@ -362,26 +436,32 @@ Both UI features are optional, dependency-free plugins; styles are included in
 `tiny-datagrid/style.css`. The worksheet model also works without a tab UI.
 
 ```js
-import TinyDatagrid from 'tiny-datagrid';
-import { worksheets } from 'tiny-datagrid/worksheets';
-import { worksheetTabs } from 'tiny-datagrid/worksheet-tabs';
-import { cellContextMenu } from 'tiny-datagrid/cell-context-menu';
-import 'tiny-datagrid/style.css';
+import TinyDatagrid from "tiny-datagrid";
+import { worksheets } from "tiny-datagrid/worksheets";
+import { worksheetTabs } from "tiny-datagrid/worksheet-tabs";
+import { cellContextMenu } from "tiny-datagrid/cell-context-menu";
+import "tiny-datagrid/style.css";
 
-const grid = new TinyDatagrid('#grid', {
+const grid = new TinyDatagrid("#grid", {
   plugins: [
     worksheets(),
-    cellContextMenu({ items: [{
-      id: 'inspect', label: 'Inspect cell',
-      action: grid => console.log(grid.getCell(grid.anchor.row, grid.anchor.col))
-    }] }),
-    worksheetTabs({ container: '#sheet-tabs' })
-  ]
+    cellContextMenu({
+      items: [
+        {
+          id: "inspect",
+          label: "Inspect cell",
+          action: (grid) =>
+            console.log(grid.getCell(grid.anchor.row, grid.anchor.col)),
+        },
+      ],
+    }),
+    worksheetTabs({ container: "#sheet-tabs" }),
+  ],
 });
-const book = grid.feature('worksheets');
-const id = book.add('Planning');
+const book = grid.feature("worksheets");
+const id = book.add("Planning");
 book.select(id);
-book.rename(id, 'Schedule');
+book.rename(id, "Schedule");
 ```
 
 Right-click a cell or press Shift+F10 to open the cell menu. An existing selection
@@ -422,3 +502,113 @@ the complete collection. Workbook export and autosave preserve every sheet and
 the active sheet ID. Draft recovery remembers its owning sheet. Existing rules
 for sheet-name references apply: stable sheet IDs survive renames; name-based
 references must be updated when renaming a sheet.
+
+## Linked analysis and pivot source records
+
+Optional `tiny-datagrid/analysis` gives hosts one explicit row scope for table
+filters, charts, and pivots. `visible` excludes filtered/hidden rows; `all` includes
+them; `selection` captures selected **row numbers**, including hidden rows, while
+retaining all source fields. Sources are header-first rectangles (unique headers,
+at most 500,000 cells). Source records retain their zero-based sheet row number.
+
+```js
+import { analysisContext } from "tiny-datagrid/analysis";
+grid.use(analysisContext());
+const analysis = grid.feature("analysis");
+analysis.set({ scope: "selection", selection: grid.selection });
+const source = { r1: 0, c1: 0, r2: 100, c2: 3 };
+const config = {
+  rows: ["Category"],
+  values: [{ field: "Amount", aggregate: "sum" }],
+};
+const view = analysis.pivot(source, config);
+view.result.toTable();
+view.drill(1, 1); // Records behind the first numeric result; table-relative indices.
+analysis.filter(0, ["Hardware"]); // Uses the normal table filter; scope becomes visible.
+const id = grid.feature("pivots").insert({
+  source,
+  target: { row: 0, col: 6 },
+  config,
+  analysis: analysis.state,
+});
+grid.feature("pivots").drill(id, 1, 7); // Absolute output-cell coordinates.
+```
+
+Inserted pivots store their scope independently. `visible` follows current source
+visibility; `selection` retains the captured row interval. Existing pivots without
+`analysis` retain their previous `all` behavior. Drill-through includes all input
+records in the bucket, including empty values ignored by some aggregates. Header
+and dimension cells have no numeric bucket. Sorting changes which records occupy
+a selected row interval.
+
+`installCharts` accepts `getAnalysis: () => analysis.state` and
+`onSelect: ({row, column}) => …`. Click or Enter activates a category; a combined
+“Other” pie slice does not identify a single row. `dispose()` removes its refresh
+subscriptions. The demo connects category activation to table filters and opens
+source records from pivot-value buttons or **Source records** for an inserted
+pivot. The record dialog pages in groups of 100. Chart previews remain capped at
+200 rows and eight series; they reject sources over 500,000 cells.
+
+## Heatmaps
+
+```js
+import { heatmapRule, drawHeatmap } from "tiny-datagrid/heatmap";
+// Requires the conditionalFormatting() plugin for cell rendering.
+grid.setConditionalFormats([
+  heatmapRule(
+    { r1: 1, c1: 1, r2: 20, c2: 4 },
+    {
+      min: 0,
+      max: 100,
+      colors: ["#17213f", "#778cff", "#ffe7a3"],
+    },
+  ),
+]);
+drawHeatmap(canvas, new Float64Array([0, 25, 75, 100]), 2, 2, {
+  min: 0,
+  max: 100,
+});
+```
+
+Scales are serializable, interpolate between two or more `#rrggbb` stops, and
+ignore nonnumeric cells. Text contrast is chosen for the background; actual values
+remain available in cells. The demo Heatmap command uses the selected numeric
+minimum/maximum as fixed bounds (up to 100,000 selected cells). Reapply it to
+rescale after edits. Color rules participate in normal undo and workbook storage.
+
+## Simulations and worker calculation
+
+```js
+import {
+  lifeStep,
+  mandelbrot,
+  computeMandelbrot,
+} from "tiny-datagrid/simulations";
+const next = lifeStep(currentUint8Array, rows, columns, { wrap: false });
+grid.registerFunction("MANDELBROT", mandelbrot);
+// =MANDELBROT(-0.5;0;200)
+const controller = new AbortController();
+const values = await computeMandelbrot(
+  { rows: 96, columns: 128, iterations: 200 },
+  {
+    signal: controller.signal,
+    onProgress: (fraction) => (progress.value = fraction),
+  },
+);
+// controller.abort() terminates a running worker and rejects with AbortError.
+```
+
+Life computes every next state from an unchanged previous generation. Mandelbrot
+returns the escape-iteration count, or the iteration limit when it has not escaped
+(no assertion of mathematical set membership). Worker rasters are limited to one
+million pixels; iteration limits are 1–10,000. Serve the module worker over HTTP(S)
+and allow same-origin workers in your CSP. Numerical kernels have no DOM dependency.
+
+The demo runs a 64×48 Life grid with pause, single-step, speed, edge wrapping and
+mouse/keyboard cell toggling. Mandelbrot uses a 128×96 worker preview with center,
+view width, iteration limit (up to 2,000), progress and cancellation. Moving the
+page to the background pauses/cancels work. Preview frames never touch workbook
+history or autosave. **Insert as new sheet** saves one snapshot with a heatmap;
+Mandelbrot can alternatively insert registered cell formulas. Formula recalculation
+uses the synchronous formula engine; the interactive preview uses the worker.
+Hosts loading those formula sheets must register `MANDELBROT` themselves.

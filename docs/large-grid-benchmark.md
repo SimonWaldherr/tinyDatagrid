@@ -9,12 +9,12 @@ not a grid calculation/render benchmark. No 200-million-entry cell Map is alloca
 
 Measured on Apple M2 Max / Node 26.10.0, September 29, 2026:
 
-| Operation | Before | After |
-|---|---:|---:|
-| Initial layout | 38.7 ms | 22.0 ms |
-| Repeated layout (mean of 5) | 39.4 ms | 18.5 ms |
-| Edit with history enabled | 2152.4 ms | 152.5 ms |
-| Edit without history | 5.9 ms | 5.9 ms |
+| Operation                    |    Before |     After |
+| ---------------------------- | --------: | --------: |
+| Initial layout               |   38.7 ms |   22.0 ms |
+| Repeated layout (mean of 5)  |   39.4 ms |   18.5 ms |
+| Edit with history enabled    | 2152.4 ms |  152.5 ms |
+| Edit without history         |    5.9 ms |    5.9 ms |
 | Heap snapshot after workload | 759.1 MiB | 201.1 MiB |
 
 Timing is a local before/after sample, not a cross-device guarantee. Heap snapshots
