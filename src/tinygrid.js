@@ -1,7 +1,23 @@
 import {
+  rangeAggregates,
+  rangeFromNode,
+  evaluateAggregate,
+  checkDenseRange,
+} from "./range-aggregates.js";
+import {
+  RowAxis,
+  rowHeights,
+  rowDimensions,
+  checkDimensions,
+  DENSE_ROWS,
+} from "./row-axis.js";
+import {
   numericOperand,
   arithmetic,
   divideNumbers,
+  powerNumbers,
+  sqrtNumber,
+  floorNumber,
   sumNumbers,
   meanNumbers,
   numericExtreme,
@@ -65,7 +81,12 @@ import {
   rowsOf,
 } from "./json-values.js";
 import { translate } from "./i18n.js";
-import { difference, applyDifference } from "./history.js";
+import {
+  difference,
+  applyDifference,
+  CellJournal,
+  applyCellDifference,
+} from "./history.js";
 import { Dependencies, CellMap } from "./dependencies.js";
 import { checkedLineage, tracePrecedents, traceDependents } from "./lineage.js";
 import { followsMove } from "./references.js";
@@ -701,7 +722,7 @@ class FormulaTokenizer {
     }
     return {
       type: "number",
-      value: formulaNumber(this.s.slice(start, this.i)),
+      value: compactDecimal(DecimalValue.parse(this.s.slice(start, this.i))),
     };
   }
   readIdent() {
@@ -852,7 +873,10 @@ export class FormulaEngine {
         flatten(xs).filter((v) => v !== "" && v != null).length,
       COUNTBLANK: (...xs) =>
         flatten(xs).filter((v) => v === "" || v == null).length,
-      ABS: (x) => Math.abs(asNumber(x)),
+      ABS: (x) =>
+        compareDecimals(numericOperand(x), 0) < 0
+          ? arithmetic("*", x, -1)
+          : numericOperand(x),
       ROUND: (x, n = 0) =>
         compactDecimal(roundDecimal(numericOperand(x), asNumber(n), "half-up")),
       ROUNDUP: (x, n = 0) =>
@@ -863,12 +887,15 @@ export class FormulaEngine {
         compactDecimal(
           roundDecimal(numericOperand(x), asNumber(n), "toward-zero"),
         ),
-      FLOOR: (x) => Math.floor(asNumber(x)),
-      CEIL: (x) => Math.ceil(asNumber(x)),
-      SQRT: (x) => Math.sqrt(asNumber(x)),
-      POW: (a, b) => Math.pow(asNumber(a), asNumber(b)),
-      MOD: (a, b) => asNumber(a) % asNumber(b),
-      SIGN: (x) => Math.sign(asNumber(x)),
+      FLOOR: (x) => floorNumber(x),
+      CEIL: (x) => floorNumber(x, true),
+      SQRT: sqrtNumber,
+      POW: powerNumbers,
+      MOD: (a, b) =>
+        compareDecimals(numericOperand(b), 0) === 0
+          ? new FormulaError("#DIV/0!")
+          : arithmetic("%", a, b),
+      SIGN: (x) => compareDecimals(numericOperand(x), 0),
       IF: (cond, a, b) => (cond ? a : b),
       IFS: (...xs) => {
         for (let i = 0; i + 1 < xs.length; i += 2) if (xs[i]) return xs[i + 1];
@@ -901,6 +928,9 @@ export class FormulaEngine {
       N: (x) => convertNumber(x, true),
       VALUE: (x) => {
         try {
+          if (typeof x === "string" && parseNumericValue(x).numeric)
+            return compactDecimal(DecimalValue.parse(x.trim()));
+          if (x instanceof DecimalValue || typeof x === "bigint") return x;
           return convertNumber(x);
         } catch (error) {
           return error instanceof RangeError
@@ -1477,7 +1507,7 @@ export class FormulaEngine {
           ? new FormulaError("#DIV/0!")
           : arithmetic("%", a, b);
       case "^":
-        return formulaNumber(Math.pow(formulaNumber(a), formulaNumber(b)));
+        return powerNumbers(a, b);
       case "&":
         return String(a ?? "") + String(b ?? "");
       case "=":
@@ -1575,6 +1605,7 @@ export class FormulaEngine {
           return new FormulaError("#RANGE!");
         const rr = normalizeRange(a, b),
           out = [];
+        checkDenseRange(this.grid, rr);
         for (let r = rr.r1; r <= rr.r2; r++) {
           const row = [];
           for (let c = rr.c1; c <= rr.c2; c++)
@@ -1822,6 +1853,14 @@ export class FormulaEngine {
             n.args.length > definition.arity.max)
         )
           return new FormulaError("#VALUE!", "Incorrect argument count");
+        if (
+          rangeAggregates.has(n.name) &&
+          this.functions[n.name] === this._builtInFunctions.get(n.name)
+        ) {
+          const ranges = n.args.map((arg) => rangeFromNode(arg, parseA1));
+          if (ranges.some(Boolean))
+            return evaluateAggregate(this, n, ranges, visiting);
+        }
         if (definition?.volatile) this.dependencies.read("volatile:cycle");
         const args = n.args.map((x) => this.evalNode(x, visiting));
         if (LIFTED.has(n.name) && args.some(Array.isArray))
@@ -2079,9 +2118,10 @@ export class TinyDatagrid {
     this._resizeObserver = null;
     this.locale = options.locale || "en";
     this._gridId = `tinygrid-${++gridSequence}`;
+    checkDimensions(this.options.rows, this.options.columns);
     this.rowCount = this.options.rows;
     this.colCount = this.options.columns;
-    this.rowHeights = Array(this.rowCount).fill(this.options.rowHeight);
+    this.rowHeights = rowHeights(this.rowCount, this.options.rowHeight);
     this.colWidths = Array(this.colCount).fill(this.options.columnWidth);
     this.visualizations = [];
     this.pivotTables = [];
@@ -2460,6 +2500,12 @@ export class TinyDatagrid {
   styleSelection(style = {}) {
     if (this.readOnly) return false;
     const s = this.selection;
+    checkDenseRange(this, {
+      r1: Math.min(s.r1, s.r2),
+      r2: Math.max(s.r1, s.r2),
+      c1: Math.min(s.c1, s.c2),
+      c2: Math.max(s.c1, s.c2),
+    });
     for (let r = Math.min(s.r1, s.r2); r <= Math.max(s.r1, s.r2); r++)
       for (let c = Math.min(s.c1, s.c2); c <= Math.max(s.c1, s.c2); c++)
         if (this.isCellReadOnly(r, c)) return false;
@@ -2546,6 +2592,7 @@ export class TinyDatagrid {
     this.emit("destroy", {});
     this._abort.abort();
     this._historyBefore = null;
+    this._historyJournal = null;
     this._historyDepth = 0;
     this._history.length = 0;
     this._future.length = 0;
@@ -2560,10 +2607,17 @@ export class TinyDatagrid {
     return `${r},${c}`;
   }
   ensureSize(rows, cols) {
+    checkDimensions(rows, cols);
     let changed = false;
     if (rows > this.rowCount) {
-      while (this.rowHeights.length < rows)
-        this.rowHeights.push(this.options.rowHeight);
+      if (rows > DENSE_ROWS && !(this.rowHeights instanceof RowAxis))
+        this.rowHeights = rowHeights(rows, this.options.rowHeight, {
+          rowHeights: this.rowHeights,
+        });
+      if (this.rowHeights instanceof RowAxis) this.rowHeights.length = rows;
+      else
+        while (this.rowHeights.length < rows)
+          this.rowHeights.push(this.options.rowHeight);
       this.rowCount = rows;
       changed = true;
     }
@@ -2676,17 +2730,17 @@ export class TinyDatagrid {
         }
       : null;
   }
-  _snapshot() {
+  _snapshot(cells = this.cells) {
     return {
       tables: this.listTables(),
       visualizations: structuredClone(this.visualizations),
       pivotTables: structuredClone(this.pivotTables),
       validationRules: structuredClone(this.validationRules),
       variables: new Map(this.variables),
-      cells: new Map(this.cells),
+      cells: new Map(cells),
       rowCount: this.rowCount,
       colCount: this.colCount,
-      rowHeights: [...this.rowHeights],
+      ...rowDimensions(this.rowHeights),
       colWidths: [...this.colWidths],
       hiddenColumns: new Set(this.hiddenColumns),
       hiddenRows: new Set(this.hiddenRows),
@@ -2698,24 +2752,44 @@ export class TinyDatagrid {
   }
   _recordHistory() {
     if (
-      (this.historyLimit ||
+      (this._historyDepth ||
+        this.historyLimit ||
         this.options.protectFormulas ||
         this.feature("validation") ||
         this.feature("conditionalFormatting") ||
         this.feature("pivots")) &&
       !this._historyBefore
-    )
-      this._historyBefore = this._snapshot();
+    ) {
+      this._historyBefore = this._snapshot(new Map());
+      this._historyJournal = new CellJournal(this.cells);
+    }
   }
   _finishHistory() {
     if (this._historyDepth || !this._historyBefore) return;
-    const before = this._historyBefore;
+    const before = this._historyBefore,
+      journal = this._historyJournal;
     this._historyBefore = null;
-    const patch =
-      difference(before, this._snapshot()) ||
-      (this._pendingRemoteChanges?.length
-        ? { type: "object", changes: [] }
-        : null);
+    this._historyJournal = null;
+    let patch;
+    if (journal && this.cells === journal.cells) {
+      patch = difference(before, this._snapshot(new Map()));
+      const cells = journal.difference();
+      if (cells) {
+        patch ||= { type: "object", changes: [] };
+        patch.changes.push({
+          key: "cells",
+          was: true,
+          now: true,
+          patch: cells,
+        });
+      }
+      if (patch) patch.journal = true;
+    } else {
+      if (journal) before.cells = journal.original();
+      patch = difference(before, this._snapshot());
+    }
+    if (!patch && this._pendingRemoteChanges?.length)
+      patch = { type: "object", changes: [], journal: true };
     if (!patch) {
       this._pendingRemoteChanges = null;
       return;
@@ -2747,14 +2821,7 @@ export class TinyDatagrid {
     try {
       return callback(this);
     } catch (error) {
-      if (
-        outer &&
-        this._historyBefore &&
-        (error.validation ||
-          this.feature("validation") ||
-          this.feature("conditionalFormatting") ||
-          this.feature("pivots"))
-      ) {
+      if (outer && this._historyBefore) {
         const before = this._historyBefore;
         this._historyBefore = null;
         if (this._pendingRemoteChanges) {
@@ -2764,7 +2831,14 @@ export class TinyDatagrid {
           );
           this._pendingRemoteChanges = null;
         }
-        this._restore(before);
+        const journal = this._historyJournal;
+        this._historyJournal = null;
+        if (journal && this.cells === journal.cells)
+          this._restore(before, journal.rollback());
+        else {
+          if (journal) before.cells = journal.original();
+          this._restore(before);
+        }
         if (error.validation) {
           this.emit("validationerror", error.validation);
           return false;
@@ -2782,6 +2856,7 @@ export class TinyDatagrid {
   }
   clearHistory() {
     this._historyBefore = null;
+    this._historyJournal = null;
     this._pendingRemoteChanges = null;
     this._history.length = 0;
     this._future.length = 0;
@@ -2792,15 +2867,16 @@ export class TinyDatagrid {
     if (!this._historyDepth) this._finishHistory();
     return { undo: this._history.length, redo: this._future.length };
   }
-  _restore(state) {
+  _restore(state, cells) {
     this.visualizations = structuredClone(state.visualizations || []);
     this.pivotTables = structuredClone(state.pivotTables || []);
     this.validationRules = structuredClone(state.validationRules || []);
     this.variables = new Map(state.variables);
-    this.cells = new Map(state.cells);
+    if (cells) this._cells = cells;
+    else this.cells = new Map(state.cells);
     this.rowCount = state.rowCount;
     this.colCount = state.colCount;
-    this.rowHeights = [...state.rowHeights];
+    this.rowHeights = rowHeights(state.rowCount, this.options.rowHeight, state);
     this.colWidths = [...state.colWidths];
     this.hiddenColumns = new Set(state.hiddenColumns || []);
     this.hiddenRows = new Set(state.hiddenRows || []);
@@ -2852,7 +2928,7 @@ export class TinyDatagrid {
       return false;
     this._history.pop();
     this._future.push(patch);
-    this._restore(applyDifference(this._snapshot(), patch, false));
+    this._restoreHistory(patch, false);
     this.emit("history", this.historyState);
     return true;
   }
@@ -2871,9 +2947,23 @@ export class TinyDatagrid {
       return false;
     this._future.pop();
     this._history.push(patch);
-    this._restore(applyDifference(this._snapshot(), patch, true));
+    this._restoreHistory(patch, true);
     this.emit("history", this.historyState);
     return true;
+  }
+  _restoreHistory(patch, forward) {
+    if (!patch.journal)
+      return this._restore(applyDifference(this._snapshot(), patch, forward));
+    const cellChange = patch.changes.find((change) => change.key === "cells");
+    const metadata = {
+      ...patch,
+      changes: patch.changes.filter((change) => change.key !== "cells"),
+    };
+    const state = applyDifference(this._snapshot(new Map()), metadata, forward);
+    this._restore(
+      state,
+      applyCellDifference(this.cells, cellChange?.patch, forward),
+    );
   }
   recalculate({ full = true } = {}) {
     if (full) this.engine.clearCache();
@@ -2927,15 +3017,33 @@ export class TinyDatagrid {
   clearSelection() {
     if (this.readOnly) return false;
     const s = this.selection;
-    for (let r = Math.min(s.r1, s.r2); r <= Math.max(s.r1, s.r2); r++)
-      for (let c = Math.min(s.c1, s.c2); c <= Math.max(s.c1, s.c2); c++)
-        if (this.isCellReadOnly(r, c)) return false;
-    for (let r = Math.min(s.r1, s.r2); r <= Math.max(s.r1, s.r2); r++)
-      for (let c = Math.min(s.c1, s.c2); c <= Math.max(s.c1, s.c2); c++) {
-        const key = this.key(r, c);
-        if (this.cells.has(key))
-          this.cells.set(key, { ...this.getCell(r, c), raw: "" });
-      }
+    const range = {
+      r1: Math.min(s.r1, s.r2),
+      r2: Math.max(s.r1, s.r2),
+      c1: Math.min(s.c1, s.c2),
+      c2: Math.max(s.c1, s.c2),
+    };
+    if (this.sqlBinding) {
+      checkDenseRange(this, range);
+      for (let row = range.r1; row <= range.r2; row++)
+        for (let col = range.c1; col <= range.c2; col++)
+          if (this.isCellReadOnly(row, col)) return false;
+    }
+    const selected = (key) => {
+      const [row, col] = key.split(",").map(Number);
+      return (
+        row >= range.r1 && row <= range.r2 && col >= range.c1 && col <= range.c2
+      );
+    };
+    for (const [key] of this.cells) {
+      if (!selected(key)) continue;
+      const [row, col] = key.split(",").map(Number);
+      if (this.isCellReadOnly(row, col)) return false;
+    }
+    this._recordHistory();
+    for (const [key, cell] of this.cells)
+      if (selected(key) && cell.raw !== "" && cell.raw != null)
+        this.cells.set(key, { ...cell, raw: "" });
     this.render();
     this.emit("change", { type: "clear" });
     return true;
@@ -3080,6 +3188,14 @@ export class TinyDatagrid {
     const k = this._calculationKey(this.key(row, col));
     dep.read(k);
     if (this.engine.cache.has(k)) return this.engine.cache.get(k);
+    if (
+      !this.cells.has(this.key(row, col)) &&
+      !this.sqlBinding &&
+      !this.options.columnTypes?.[col] &&
+      !dep.covered.has(k) &&
+      !this.pivotTables?.length
+    )
+      return "";
     if (visiting.has(k)) return new FormulaError("#CYCLE!");
     dep.begin(k);
     visiting.add(k);
@@ -3250,6 +3366,7 @@ export class TinyDatagrid {
     return true;
   }
   insertRow(index) {
+    checkDimensions(this.rowCount + 1, this.colCount);
     if (this.sqlBinding) return this.insertRecord({});
     index = clamp(index, 0, this.rowCount);
     this._recordHistory();
@@ -3380,6 +3497,7 @@ export class TinyDatagrid {
     return true;
   }
   insertColumn(index) {
+    checkDimensions(this.rowCount, this.colCount + 1);
     if (this.sqlBinding) return false;
     index = clamp(index, 0, this.colCount);
     this._recordHistory();
@@ -3447,15 +3565,15 @@ export class TinyDatagrid {
     )
       return false;
     this._recordHistory();
-    for (let row = 0; row < this.rowCount; row++) {
+    for (const [key, cell] of this.cells) {
+      const [row, col] = key.split(",").map(Number);
+      if (col !== index || cell.raw === "" || cell.raw == null) continue;
       if (
         this.sqlBinding &&
         (row === this.sqlBinding.headerRow || this.isCellReadOnly(row, index))
       )
         continue;
-      const key = this.key(row, index),
-        cell = this.cells.get(key);
-      if (cell) this.cells.set(key, { ...cell, raw: "" });
+      this.cells.set(key, { ...cell, raw: "" });
     }
     this.renderCells();
     this.emit("change", { type: "columnclear", index });
@@ -4073,6 +4191,7 @@ export class TinyDatagrid {
       r2: Math.max(range.r1, range.r2),
       c2: Math.max(range.c1, range.c2),
     };
+    checkDenseRange(this, rr);
     const out = [];
     for (let r = rr.r1; r <= rr.r2; r++) {
       const row = [];
@@ -4175,7 +4294,7 @@ export class TinyDatagrid {
       this.sqlBinding = null;
       this.rowCount = Math.max(1, this.options.rows, startRow + data.length);
       this.colCount = Math.max(1, this.options.columns, startCol + width);
-      this.rowHeights = Array(this.rowCount).fill(this.options.rowHeight);
+      this.rowHeights = rowHeights(this.rowCount, this.options.rowHeight);
       this.colWidths = Array(this.colCount).fill(this.options.columnWidth);
     } else if (!preserveDataSource) this.sqlBinding = null;
     else
@@ -4475,7 +4594,7 @@ export class TinyDatagrid {
       ? {
           rows: this.rowCount,
           columns: this.colCount,
-          rowHeights: [...this.rowHeights],
+          ...rowDimensions(this.rowHeights),
           columnWidths: [...this.colWidths],
           hiddenRows: [...this.hiddenRows].sort((a, b) => a - b),
           hiddenColumns: [...this.hiddenColumns].sort((a, b) => a - b),
@@ -4601,9 +4720,8 @@ export class TinyDatagrid {
     if (replace && dimensions && dims && startRow === 0 && startCol === 0) {
       this.rowCount = Math.max(1, Math.trunc(Number(dims.rows) || 1));
       this.colCount = Math.max(1, Math.trunc(Number(dims.columns) || 1));
-      this.rowHeights = Array.from({ length: this.rowCount }, (_, i) =>
-        clamp(Number(dims.rowHeights?.[i]) || this.options.rowHeight, 18, 400),
-      );
+      checkDimensions(this.rowCount, this.colCount);
+      this.rowHeights = rowHeights(this.rowCount, this.options.rowHeight, dims);
       this.colWidths = Array.from({ length: this.colCount }, (_, i) =>
         clamp(
           Number(dims.columnWidths?.[i]) || this.options.columnWidth,
@@ -4676,12 +4794,15 @@ export class TinyDatagrid {
         if (typeof source.className === "string")
           meta.className = source.className;
       }
-      if (hasValue || Object.keys(meta).length)
-        Map.prototype.set.call(this.cells, this.key(row, col), {
-          ...(this.cells.get(this.key(row, col)) || {}),
+      if (hasValue || Object.keys(meta).length) {
+        const key = this.key(row, col);
+        this._historyJournal?.record(key);
+        Map.prototype.set.call(this.cells, key, {
+          ...(this.cells.get(key) || {}),
           ...meta,
           ...(hasValue ? { raw: value } : {}),
         });
+      }
       this.ensureSize(row + 1, col + 1);
     }
     this.anchor = {
@@ -4834,6 +4955,7 @@ export class TinyDatagrid {
   _updateFilteredRows() {
     this.filteredRows.clear();
     for (const table of this._tables) {
+      if (!table.filters?.size) continue;
       for (let row = table.headerRow + 1; row <= table.r2; row++) {
         if (
           !this.isTableRowVisible(row, table.c1) &&
@@ -5044,8 +5166,9 @@ export class TinyDatagrid {
   }
   _canFill(source, target) {
     if (this.readOnly) return false;
-    if (!this.sqlBinding) return true;
     const { dst } = this._fillBounds(source, target);
+    checkDenseRange(this, dst);
+    if (!this.sqlBinding) return true;
     for (let row = dst.r1; row <= dst.r2; row++)
       for (let col = dst.c1; col <= dst.c2; col++)
         if (this.isCellReadOnly(row, col)) return false;
@@ -5206,6 +5329,7 @@ export class TinyDatagrid {
       target,
     );
     if (!extendsRows && !extendsColumns) return false;
+    checkDenseRange(this, dst);
     if (!this._canFill(source, target)) return false;
     this._recordHistory();
     this.ensureSize(dst.r2 + 1, dst.c2 + 1);
@@ -5320,6 +5444,7 @@ export class TinyDatagrid {
     const dr = destRow - src.r1,
       dc = destCol - src.c1;
     if (!dr && !dc) return true;
+    checkDenseRange(this, src);
     for (let r = src.r1; r <= src.r2; r++)
       for (let c = src.c1; c <= src.c2; c++)
         if (this.isCellReadOnly(r, c) || this.isCellReadOnly(r + dr, c + dc))
@@ -5854,11 +5979,48 @@ export class TinyDatagrid {
       ]),
     ];
   }
+  _scrollX() {
+    const total = this.colOffsets?.at(-1) || 0,
+      viewport = this.scroll.clientWidth;
+    const physical = Math.max(0, (this._canvasWidth ?? total) - viewport);
+    const logical = Math.max(0, total - viewport),
+      saved = this._logicalScrollX;
+    if (
+      saved &&
+      saved.left === this.scroll.scrollLeft &&
+      saved.total === total &&
+      saved.viewport === viewport
+    )
+      return saved.value;
+    return physical ? (this.scroll.scrollLeft * logical) / physical : 0;
+  }
+  _setScrollX(value) {
+    const total = this.colOffsets?.at(-1) || 0,
+      viewport = this.scroll.clientWidth;
+    const physical = Math.max(0, (this._canvasWidth ?? total) - viewport),
+      logical = Math.max(0, total - viewport);
+    value = clamp(value, 0, logical);
+    this.scroll.scrollLeft = logical ? (value * physical) / logical : 0;
+    this._logicalScrollX = {
+      left: this.scroll.scrollLeft,
+      total,
+      viewport,
+      value,
+    };
+  }
   _scrollY() {
     const total = this.rowOffsets?.at(-1) || 0,
       viewport = this.scroll.clientHeight,
       physical = Math.max(0, (this._canvasHeight ?? total) - viewport),
       logical = Math.max(0, total - viewport);
+    const saved = this._logicalScroll;
+    if (
+      saved &&
+      saved.top === this.scroll.scrollTop &&
+      saved.total === total &&
+      saved.viewport === viewport
+    )
+      return saved.value;
     return physical ? (this.scroll.scrollTop * logical) / physical : 0;
   }
   _setScrollY(value) {
@@ -5869,12 +6031,18 @@ export class TinyDatagrid {
     this.scroll.scrollTop = logical
       ? (clamp(value, 0, logical) * physical) / logical
       : 0;
+    this._logicalScroll = {
+      top: this.scroll.scrollTop,
+      total,
+      viewport,
+      value: clamp(value, 0, logical),
+    };
   }
   _viewOffset(index, axis) {
     const rows = axis === "rows",
       frozen = this._frozenCounts()[axis],
       offsets = rows ? this.rowOffsets : this.colOffsets,
-      scroll = rows ? this._scrollY() : this.scroll.scrollLeft;
+      scroll = rows ? this._scrollY() : this._scrollX();
     return index < frozen ? offsets[index] : offsets[index] - scroll;
   }
   _syncFrozenCells() {
@@ -5888,7 +6056,9 @@ export class TinyDatagrid {
       if (r < frozen.rows || c < frozen.columns) {
         cell.style.left =
           this.colOffsets[c] +
-          (c < frozen.columns ? this.scroll.scrollLeft : 0) +
+          (c < frozen.columns
+            ? this.scroll.scrollLeft
+            : this.scroll.scrollLeft - this._scrollX()) +
           "px";
         cell.style.top =
           this.rowOffsets[r] +
@@ -5943,14 +6113,18 @@ export class TinyDatagrid {
           this.hiddenColumns.has(col) ? 0 : width,
         )
       : this.colWidths;
-    this.displayRowHeights =
-      this.hiddenRows.size || this.filteredRows.size
-        ? this.rowHeights.map((height, row) =>
-            this.hiddenRows.has(row) || this.filteredRows.has(row) ? 0 : height,
-          )
-        : this.rowHeights;
+    const hidden = new Set([...this.hiddenRows, ...this.filteredRows]);
     this.colOffsets = this.offsets(this.displayColWidths);
-    this.rowOffsets = this.offsets(this.displayRowHeights);
+    if (this.rowHeights instanceof RowAxis) {
+      const geometry = this.rowHeights.layout(hidden);
+      this.displayRowHeights = geometry.sizes;
+      this.rowOffsets = geometry.offsets;
+    } else {
+      this.displayRowHeights = hidden.size
+        ? this.rowHeights.map((size, row) => (hidden.has(row) ? 0 : size))
+        : this.rowHeights;
+      this.rowOffsets = this.offsets(this.displayRowHeights);
+    }
     const W = this.colOffsets.at(-1),
       H = this.rowOffsets.at(-1);
     this.el.setAttribute("aria-rowcount", String(this.rowCount + 1));
@@ -5960,7 +6134,9 @@ export class TinyDatagrid {
       this._syncVirtualizationObserver();
     }
     this._canvasHeight = this.virtualization ? Math.min(H, 8000000) : H;
-    this.canvas.style.width = W + "px";
+    this._canvasWidth = this.virtualization ? Math.min(W, 8000000) : W;
+    this.canvas.style.width = this._canvasWidth + "px";
+    this.canvas.style.overflow = "hidden";
     this.canvas.style.height = this._canvasHeight + "px";
     this.renderHeaders();
     this.renderCells();
@@ -5977,7 +6153,7 @@ export class TinyDatagrid {
       ? this._visibleRange(
           this.colOffsets,
           this.colCount,
-          this.scroll.scrollLeft,
+          this._scrollX(),
           this.scroll.clientWidth,
           this.options.columnWidth * 10,
         )
@@ -6027,7 +6203,7 @@ export class TinyDatagrid {
     }
   }
   syncHeaders() {
-    const sx = this.scroll?.scrollLeft || 0,
+    const sx = this.scroll ? this._scrollX() : 0,
       sy = this.scroll ? this._scrollY() : 0;
     const frozen = this._frozenCounts();
     // Promote the table's labels only while its body is passing under the column bar.
@@ -6103,7 +6279,7 @@ export class TinyDatagrid {
       ? this._visibleRange(
           this.colOffsets,
           this.colCount,
-          this.scroll.scrollLeft,
+          this._scrollX(),
           this.scroll.clientWidth,
           this.options.columnWidth * 10,
         )
@@ -6131,7 +6307,8 @@ export class TinyDatagrid {
         d.setAttribute("role", "gridcell");
         d.setAttribute("aria-colindex", String(c + 1));
         d.draggable = false;
-        d.style.left = this.colOffsets[c] + "px";
+        d.style.left =
+          this.colOffsets[c] - this._scrollX() + this.scroll.scrollLeft + "px";
         d.style.top =
           this.rowOffsets[r] - this._scrollY() + this.scroll.scrollTop + "px";
         d.style.width = this.displayColWidths[c] + "px";
@@ -6313,9 +6490,7 @@ export class TinyDatagrid {
       localY = y - rect.top;
     const px =
         localX +
-        (localX < (this.colOffsets[frozen.columns] || 0)
-          ? 0
-          : this.scroll.scrollLeft),
+        (localX < (this.colOffsets[frozen.columns] || 0) ? 0 : this._scrollX()),
       py =
         localY +
         (localY < (this.rowOffsets[frozen.rows] || 0) ? 0 : this._scrollY());
@@ -6370,7 +6545,7 @@ export class TinyDatagrid {
       const rows = axis === "rows",
         offsets = rows ? this.rowOffsets : this.colOffsets,
         count = frozen[axis],
-        shift = rows ? this._scrollY() : this.scroll.scrollLeft,
+        shift = rows ? this._scrollY() : this._scrollX(),
         boundary = Math.min(limit, offsets[count] || 0),
         parts = [];
       for (const [start, end, delta, min, max] of [
@@ -6520,10 +6695,10 @@ export class TinyDatagrid {
         this._setScrollY(bottom - this.scroll.clientHeight);
     }
     if (col >= frozen.columns) {
-      if (left < this.scroll.scrollLeft + this.colOffsets[frozen.columns])
-        this.scroll.scrollLeft = left - this.colOffsets[frozen.columns];
-      else if (right > this.scroll.scrollLeft + this.scroll.clientWidth)
-        this.scroll.scrollLeft = right - this.scroll.clientWidth;
+      if (left < this._scrollX() + this.colOffsets[frozen.columns])
+        this._setScrollX(left - this.colOffsets[frozen.columns]);
+      else if (right > this._scrollX() + this.scroll.clientWidth)
+        this._setScrollX(right - this.scroll.clientWidth);
     }
   }
   edit(row = this.selection.r2, col = this.selection.c2, initial = null) {
@@ -6762,6 +6937,43 @@ export class TinyDatagrid {
     this._syncVirtualizationObserver();
     if (typeof globalThis.addEventListener === "function")
       this._listen(globalThis, "resize", () => this._scheduleVirtualRender());
+    this._listen(
+      this.scroll,
+      "wheel",
+      (event) => {
+        if (
+          event.ctrlKey ||
+          ((this.rowOffsets?.at(-1) || 0) <= this._canvasHeight &&
+            (this.colOffsets?.at(-1) || 0) <= this._canvasWidth)
+        )
+          return;
+        const xUnit =
+          event.deltaMode === 1
+            ? this.options.columnWidth
+            : event.deltaMode === 2
+              ? this.scroll.clientWidth
+              : 1;
+        const yUnit =
+          event.deltaMode === 1
+            ? this.options.rowHeight
+            : event.deltaMode === 2
+              ? this.scroll.clientHeight
+              : 1;
+        const x = this._scrollX(),
+          y = this._scrollY();
+        this._setScrollX(
+          x + (event.deltaX || (event.shiftKey ? event.deltaY : 0)) * xUnit,
+        );
+        this._setScrollY(y + (event.shiftKey ? 0 : event.deltaY) * yUnit);
+        if (x === this._scrollX() && y === this._scrollY()) return;
+        event.preventDefault();
+        this._syncFrozenCells();
+        this.syncHeaders();
+        this.updateSelectionOverlay();
+        this._scheduleVirtualRender();
+      },
+      { passive: false },
+    );
     this._listen(this.scroll, "scroll", () => {
       this.syncHeaders();
       this._syncFrozenCells();

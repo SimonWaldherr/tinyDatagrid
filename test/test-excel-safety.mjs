@@ -83,7 +83,10 @@ assert.equal(
   "#NUM!",
 );
 assert.throws(() => DecimalValue.parse(Number.MAX_SAFE_INTEGER + 1));
-assert.equal(f("DECIMAL.PARSE(1)/3"), "#NUM!");
+assert.equal(
+  String(f("DECIMAL.PARSE(1)/3")),
+  "0.3333333333333333333333333333333333",
+);
 assert.equal(f('AVERAGE("")'), "#N/A");
 assert.equal(f('MIN("")'), "#N/A");
 assert.equal(f("SUM(TRUE;2)"), "#VALUE!");

@@ -117,6 +117,8 @@ export type TinyDatagridOptions = Record<string, unknown> & {
   columnTypes?: Record<number, string>;
   functions?: SpreadsheetFunctions;
   historyLimit?: number;
+  /** Maximum cells in a materialized range (default 1,000,000). Streaming aggregates are exempt. */
+  maxRangeCells?: number;
   plugins?: GridPlugin[];
   externalVariables?: Record<string, unknown>;
 };

@@ -45,6 +45,7 @@ import "tiny-datagrid/demo-tools.css";
 
 const grid: TinyDatagrid = new TinyGrid("#grid", {
   rows: 100,
+  maxRangeCells: 1_000_000,
   columns: 12,
   plugins: [
     worksheets(),

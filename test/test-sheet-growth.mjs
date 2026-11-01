@@ -172,7 +172,7 @@ assert.equal(frames.size, 0, "disposal cancels queued growth");
 customScroll();
 assert.equal(frames.size, 0, "disposal detaches navigation listeners");
 customGrowth.dispose();
-for (const options of [{ maxRows: 0 }, { maxColumns: 16385 }, { rowStep: 1.5 }])
+for (const options of [{ maxRows: 0 }, { maxColumns: 32769 }, { rowStep: 1.5 }])
   assert.throws(() => installSheetGrowth(custom, options), TypeError);
 console.log(
   "Sheet growth, navigation, persistence and limits regression tests passed",

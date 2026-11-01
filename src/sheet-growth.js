@@ -15,8 +15,8 @@ export function installSheetGrowth(
     ![maxRows, maxColumns, rowStep, columnStep].every(
       (value) => Number.isSafeInteger(value) && value > 0,
     ) ||
-    maxRows > 2000000 ||
-    maxColumns > 16384
+    maxRows > 10_000_000 ||
+    maxColumns > 32_768
   )
     throw new TypeError("Invalid sheet growth limits or increments");
   let previousTop = grid.scroll.scrollTop,

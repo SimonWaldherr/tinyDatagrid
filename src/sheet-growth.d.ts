@@ -2,9 +2,9 @@ import type { TinyDatagrid } from "./tinygrid.js";
 import type { DisposableTool } from "./ui-tools.js";
 export const sheetLimits: { rows: number; columns: number };
 export interface SheetGrowthOptions {
-  /** Default 10,000; at most 2,000,000. */
+  /** Default 10,000; at most 10,000,000. */
   maxRows?: number;
-  /** Default 256; at most 16,384. */
+  /** Default 256; at most 32,768. */
   maxColumns?: number;
   rowStep?: number;
   columnStep?: number;

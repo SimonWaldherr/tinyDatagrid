@@ -168,9 +168,9 @@ export function divideDecimal(a, b, digits = 18, mode = "half-up") {
     quotient++;
   return new DecimalValue(negative ? -quotient : quotient, digits);
 }
-// Ordinary arithmetic uses exact decimal operations on canonical numeric input.
-// Ordinary repeating division remains an approximate Number; DECIMAL.DIVIDE
-// explicitly controls its number of places and rounding rule.
+// Compact exactly representable results to Numbers/BigInts. Formula division
+// in numeric-operations.js rounds recurring decimals to 34 significant digits;
+// DECIMAL.DIVIDE explicitly controls decimal places and rounding.
 export function compactDecimal(value) {
   value = DecimalValue.parse(value);
   if (value.scale === 0) {

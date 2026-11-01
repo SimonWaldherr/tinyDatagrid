@@ -1,4 +1,8 @@
-import { DecimalValue } from "./decimal-values.js";
+import {
+  DecimalValue,
+  compactDecimal,
+  decimalOperation,
+} from "./decimal-values.js";
 import { CalendarDate } from "./temporal-values.js";
 import {
   parseNumericValue,
@@ -95,19 +99,37 @@ function parseNumberText(input, locale, { scientific = false } = {}) {
   if (!scientific && !percent && !currency && /[eE]/.test(normalized))
     return null;
   const parsed = parseNumericValue(normalized);
-  if (!parsed.numeric || parsed.lossy) return null;
+  if (!parsed.numeric) return null;
   let value = parsed.value;
+  if (parsed.lossy) {
+    try {
+      value = DecimalValue.parse(normalized);
+    } catch {
+      return null;
+    }
+  }
   if ((percent || currency) && typeof value === "bigint") return null;
-  if (negative) value = typeof value === "bigint" ? -value : -value;
-  if (percent) value /= 100;
+  if (negative)
+    value =
+      value instanceof DecimalValue
+        ? compactDecimal(decimalOperation("*", value, -1))
+        : -value;
+  if (percent) {
+    const decimal = DecimalValue.parse(value);
+    value = compactDecimal(
+      new DecimalValue(decimal.coefficient, decimal.scale + 2),
+    );
+  }
   return {
     type: currency
       ? "currency"
       : percent
         ? "percent"
-        : typeof value === "bigint" || Number.isInteger(value)
-          ? "integer"
-          : "number",
+        : value instanceof DecimalValue
+          ? "decimal"
+          : typeof value === "bigint" || Number.isInteger(value)
+            ? "integer"
+            : "number",
     value,
     format: currency
       ? { type: "currency", currency, locale: getDataLocale(locale) }

@@ -55,6 +55,7 @@ function controller(grid) {
     return { config: copy, analysis: structuredClone(analysis) };
   }
   function write(key, value) {
+    grid._historyJournal?.record(key);
     grid.engine.dependencies.invalidate(grid._calculationKey(key));
     writing = true;
     try {

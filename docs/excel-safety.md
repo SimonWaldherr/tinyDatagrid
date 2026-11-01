@@ -21,7 +21,7 @@ Der Prototyp vermeidet konkrete Fehlerquellen durch feste Rechenregeln und sicht
 
 ## Genauigkeit und Grenzen
 
-Gewöhnliche Division mit Number-Werten und Funktionen wie Sinus oder Logarithmus verwenden weiterhin binäre Näherungen. Für Geld und ausdrücklich kontrollierte Division `DECIMAL.PARSE` bzw. `DECIMAL.DIVIDE(a;b;stellen;modus)` nutzen. Division mit exakten Dezimal-/BigInt-Werten ist ohne ausdrückliche Rundung nur bei endlicher Dezimaldarstellung erlaubt. `DECIMAL.DIVIDE` hat den dokumentierten Standard 18 Stellen; produktive Geldformeln sollten Stellenzahl und Rundungsmodus angeben. Verfügbar sind `half-up`, `half-even`, `toward-zero` und `away-zero`.
+Zahlenliterale in Formeln behalten ihre ursprünglichen Dezimalstellen. Endliche Divisionen, ganzzahlige Potenzen und perfekte Quadratwurzeln bleiben exakt; periodische Divisionen, Mittelwerte und irrationale Quadratwurzeln runden auf 34 signifikante Stellen mit `half-even`. Funktionen wie Sinus oder Logarithmus und nichtganzzahlige Potenzen verwenden binäre Näherungen und lehnen verlustbehaftete Eingabekonvertierungen ab. `DECIMAL.DIVIDE(a;b;stellen;modus)` erlaubt weiterhin ausdrücklich gewählte Nachkommastellen und Rundung; der Standard beträgt 18 Stellen. Verfügbar sind `half-up`, `half-even`, `toward-zero` und `away-zero`.
 
 Eingaben, die bereits durch andere Programme gerundet wurden, lassen sich nicht wiederherstellen. CSV hat keine Typinformationen: Für Kennungen, große Zahlen und Dezimaldaten Text bzw. explizite Spaltentypen verwenden; `.grid` erhält unsere eigenen Werttypen. Wissenschaftlich aussehende Kennungen bleiben bei automatischer Eingabeerkennung Text. Unicode-Codepunkte sind keine sichtbaren Grapheme: ein kombiniertes Emoji kann mehrere Codepunkte enthalten.
 

@@ -136,3 +136,58 @@ function copy(value) {
     );
   return value;
 }
+
+/** Lazily retain original records immediately before CellMap replaces them. */
+export class CellJournal {
+  constructor(cells) {
+    this.cells = cells;
+    this.before = new Map();
+  }
+  record(key) {
+    if (!this.before.has(key))
+      this.before.set(key, {
+        present: this.cells.has(key),
+        value: this.cells.get(key),
+      });
+  }
+  original() {
+    const restored = new Map(this.cells);
+    for (const [key, { present, value }] of this.before)
+      if (present) restored.set(key, value);
+      else restored.delete(key);
+    return restored;
+  }
+  difference() {
+    const changes = [];
+    for (const [key, { present: was, value }] of this.before) {
+      const now = this.cells.has(key),
+        after = this.cells.get(key);
+      if (!was && !now) continue;
+      const patch =
+        was && now
+          ? difference(value, after)
+          : { type: "value", before: value, after };
+      if (was !== now || patch) changes.push({ key, was, now, patch });
+    }
+    return changes.length ? { type: "map", changes } : null;
+  }
+  rollback() {
+    for (const [key, { present, value }] of this.before)
+      if (present) Map.prototype.set.call(this.cells, key, value);
+      else Map.prototype.delete.call(this.cells, key);
+    return this.cells;
+  }
+}
+/** Apply just changed records; no full cell-map clone is required by undo/redo. */
+export function applyCellDifference(cells, patch, forward) {
+  for (const { key, was, now, patch: change } of patch?.changes || []) {
+    if (forward ? now : was)
+      Map.prototype.set.call(
+        cells,
+        key,
+        applyDifference(cells.get(key), change, forward),
+      );
+    else Map.prototype.delete.call(cells, key);
+  }
+  return cells;
+}

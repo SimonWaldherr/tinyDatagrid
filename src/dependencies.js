@@ -7,6 +7,7 @@ export class Dependencies {
     this.reads = new Map();
     this.users = new Map();
     this.stack = [];
+    this.ranges = new Map();
     this.evaluations = 0;
     // Dynamic-array state. Keys are calculation keys, so worksheet views can share this object.
     this.spills = new Map(); // origin -> {row,col,rows,cols,matrix}
@@ -25,6 +26,14 @@ export class Dependencies {
     if (!users) this.users.set(key, (users = new Set()));
     users.add(owner);
   }
+  readRange(sheet, range) {
+    if (this.stack.at(-1) == null) return;
+    const token =
+      "range:" +
+      JSON.stringify([sheet, range.r1, range.c1, range.r2, range.c2]);
+    this.ranges.set(token, { sheet, ...range });
+    this.read(token);
+  }
   begin(key) {
     this.forget(key);
     this.stack.push(key);
@@ -37,7 +46,10 @@ export class Dependencies {
     for (const dependency of this.reads.get(key) || []) {
       const users = this.users.get(dependency);
       users?.delete(key);
-      if (!users?.size) this.users.delete(dependency);
+      if (!users?.size) {
+        this.users.delete(dependency);
+        this.ranges.delete(dependency);
+      }
     }
     this.reads.delete(key);
   }
@@ -57,6 +69,27 @@ export class Dependencies {
       if (seen.has(current) || skip?.has(current)) continue;
       seen.add(current);
       this.cache.delete(current);
+      let sheet = null,
+        cell = current;
+      if (typeof current === "string" && current.startsWith("[")) {
+        try {
+          [sheet, cell] = JSON.parse(current);
+        } catch {
+          cell = null;
+        }
+      }
+      if (typeof cell === "string" && /^\d+,\d+$/.test(cell)) {
+        const [row, col] = cell.split(",").map(Number);
+        for (const [token, range] of this.ranges)
+          if (
+            sheet === range.sheet &&
+            row >= range.r1 &&
+            row <= range.r2 &&
+            col >= range.c1 &&
+            col <= range.c2
+          )
+            pending.push(token);
+      }
       for (const user of this.users.get(current) || []) pending.push(user);
     }
     for (const current of seen) {
@@ -74,6 +107,7 @@ export class Dependencies {
     this.cycleTime = Date.now();
     this.cache.clear();
     this.reads.clear();
+    this.ranges.clear();
     this.users.clear();
     this.spills.clear();
     this.covered.clear();
@@ -115,6 +149,7 @@ export class CellMap extends Map {
       this.grid.engine?.dependencies.invalidate(this.grid._calculationKey(key));
       this.grid.engine?.cellChanged?.(key);
     }
+    this.grid._historyJournal?.record(key);
     return super.set(key, value);
   }
   delete(key) {
@@ -123,11 +158,14 @@ export class CellMap extends Map {
       this.grid.engine?.dependencies.invalidate(this.grid._calculationKey(key));
       this.grid.engine?.cellChanged?.(key);
     }
+    this.grid._historyJournal?.record(key);
     return super.delete(key);
   }
   clear() {
     for (const key of this.keys()) this.grid._validateWrite?.(key, "");
     this.grid.engine?.clearCache();
+    if (this.grid._historyJournal)
+      for (const key of this.keys()) this.grid._historyJournal.record(key);
     super.clear();
   }
 }

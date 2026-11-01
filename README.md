@@ -66,6 +66,8 @@ source, test, and documentation files. Use `make fmt-check` to check without edi
 - Incremental formulas with dynamic array spills, JSON values, math, lookups, text/regex, geo, geometry, hashes, and randomness. Register your own JavaScript functions.
 - Data import/export, pivots, SQL integration, and sharing through self-contained URL hashes.
 - Keyboard navigation, accessibility semantics, DE/EN labels, dark mode, and virtualization.
+- Sparse geometry for up to 10 million addressable rows and 32,768 columns;
+  streaming range aggregates and cell-journal history. See [scalability](docs/scalability.md).
 - **Opt-in tools:** theme presets, JSON editor, charts, find/replace, formula assistance, and PNG/PDF export.
 - **Opt-in plugins:** frozen panes, conditional formatting, validation, worksheets, in-sheet pivots, and IndexedDB storage.
 - **Basic BI:** scoped KPI summaries, target comparisons, ranked groups, and source-row drill-through via the optional [BI module](docs/bi.md).

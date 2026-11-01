@@ -90,10 +90,11 @@ committing the edit, they operate on the sheet.
 
 History stores reversible differences: changed cell values, formatting, filters,
 row/column dimensions, variables, and workbook metadata. It does not retain a
-full workbook for each step. One temporary comparison snapshot is used during
-an action and released afterward; comparison time still scales with sheet size.
-Large replacements/imports necessarily retain the data needed to restore the
-previous contents. Undo and redo move the same patch between stacks.
+full workbook for each step. Cell writes journal their original records lazily;
+ordinary edits and undo/redo do not clone or compare the complete cell map.
+Metadata is compared separately. Structural changes and replacements/imports
+can still require full cell snapshots. Failed outer transactions roll back,
+including with `historyLimit: 0`. Undo and redo move the same patch between stacks.
 
 `historyLimit` defaults to 100 steps; use `0` to disable history. A new change
 after undo discards the redo branch; no-op edits do not. History stays in memory
@@ -230,9 +231,12 @@ numeric values through arithmetic. JSON text with unsafe numeric literals is rej
 workbook's tagged BigInt representation.
 
 Addition, subtraction, multiplication and sums use base-10 arithmetic, so
-`0.1 + 0.2` evaluates to `0.3`. Ordinary Number division and transcendental
-functions can still produce approximations. Use `DECIMAL.DIVIDE` for explicit
-division precision and rounding. Precision already lost in a host-provided
+`0.1 + 0.2` evaluates to `0.3`. Numeric formula tokens preserve all source digits.
+Terminating division, integer powers and perfect square roots remain exact;
+recurring division, averages and irrational square roots use 34 significant
+digits with half-even rounding. Transcendental functions and fractional powers
+still use Number arithmetic and reject precision-losing conversions. Use
+`DECIMAL.DIVIDE` for explicit decimal places and rounding. Precision already lost in a host-provided
 JavaScript Number cannot be recovered. Supply exact values as decimal strings,
 `DecimalValue` objects or BigInts. Custom functions remain responsible for their
 internal arithmetic. See [precision and limits](excel-safety.md#genauigkeit-und-grenzen).
@@ -464,3 +468,10 @@ returns blank; negative counts and invalid dates are rejected.
 plus a final overflow count. Each bound is inclusive; empty data cells are
 ignored. Invalid numeric text is an error. With bounds 10, 20, 30 the rows count
 values ≤10, >10 through 20, >20 through 30, and >30.
+
+## Large worksheets
+
+The core supports up to 10,000,000 addressable rows and 32,768 columns. This is
+an address space, not a promise to populate every cell. Actual capacity depends
+on data, formulas, device memory and browser storage. See [scalability](scalability.md)
+for sparse geometry, streaming aggregates, history, serialization and budgets.

@@ -1,3 +1,4 @@
+import { DecimalValue } from "./decimal-values.js";
 import { FormulaError } from "./formula-errors.js";
 import { formulaNumber } from "./numeric-values.js";
 // Synchronous, dependency-free formula extensions. Angles in GEO are degrees;
@@ -6,7 +7,12 @@ const radians = (degrees) => (degrees * Math.PI) / 180;
 const degrees = (radians) => (radians * 180) / Math.PI;
 const wrap = (angle) => ((angle % 360) + 360) % 360;
 const number = (value) => {
-  if (typeof value !== "number" && (typeof value !== "string" || !value.trim()))
+  if (
+    !(value instanceof DecimalValue) &&
+    typeof value !== "bigint" &&
+    typeof value !== "number" &&
+    (typeof value !== "string" || !value.trim())
+  )
     throw new TypeError("Expected a number");
   const result = formulaNumber(value);
   if (Number.isNaN(result)) throw new TypeError("Expected numeric text");

@@ -229,6 +229,7 @@ export function worksheets() {
         view.engine.cache = grid.engine.cache;
         view.engine.dependencies = grid.engine.dependencies;
         view.engine.functions = grid.engine.functions;
+        view.engine._builtInFunctions = grid.engine._builtInFunctions;
         view.engine._customFunctions = grid.engine._customFunctions;
         models.set(id, view);
         return view;
