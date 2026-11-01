@@ -90,6 +90,10 @@ import {
 import { Dependencies, CellMap } from "./dependencies.js";
 import { checkedLineage, tracePrecedents, traceDependents } from "./lineage.js";
 import { followsMove } from "./references.js";
+import { positiveInteger } from "./limits.js";
+import { asyncTask } from "./async-task.js";
+export { gridLimits, GridLimitError } from "./limits.js";
+export { WorkbookChangedError } from "./async-task.js";
 let gridSequence = 0;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -2105,6 +2109,8 @@ export class TinyDatagrid {
       headerHeight: 28,
       ...options,
     };
+    if (options.maxRangeCells !== undefined)
+      positiveInteger(options.maxRangeCells, "maxRangeCells");
     const overscan = Math.trunc(
       Number(this.options.virtualizationOverscan ?? 6),
     );
@@ -4545,14 +4551,12 @@ export class TinyDatagrid {
         ),
       );
   }
-  exportWorkbook({
+  *_exportCells({
     values = true,
     formulas = true,
     formatting = true,
-    dimensions = true,
     computedValues = true,
   } = {}) {
-    const cells = [];
     for (const [key, meta] of this.cells) {
       const [row, col] = key.split(",").map(Number),
         raw = meta.raw;
@@ -4578,18 +4582,21 @@ export class TinyDatagrid {
       if (values && meta.valueType) cell.valueType = meta.valueType;
       if (values && Object.hasOwn(meta, "originalInput"))
         cell.originalInput = toPortableValue(meta.originalInput);
-      if (Object.keys(cell).length > 2) cells.push(cell);
+      if (Object.keys(cell).length > 2) yield cell;
+      else yield null; // Count empty formatted records toward the yield budget too.
     }
     if (!formulas && values && computedValues)
       for (const info of this.getSpillRanges())
         for (let r = info.row; r < info.row + info.rows; r++)
           for (let c = info.col; c < info.col + info.cols; c++)
             if (r !== info.row || c !== info.col)
-              cells.push({
+              yield {
                 row: r,
                 col: c,
                 value: toPortableValue(this.getComputedValue(r, c)),
-              });
+              };
+  }
+  _workbook(cells, { dimensions = true } = {}) {
     const dims = dimensions
       ? {
           rows: this.rowCount,
@@ -4630,6 +4637,36 @@ export class TinyDatagrid {
     };
     if (dims) workbook.dimensions = dims;
     return workbook;
+  }
+  exportWorkbook(options = {}) {
+    const cells = [];
+    for (const cell of this._exportCells(options)) if (cell) cells.push(cell);
+    return this._workbook(cells, options);
+  }
+  /** Cooperatively copy sparse cells; edits during capture reject the snapshot. */
+  async exportWorkbookAsync(options = {}) {
+    const task = asyncTask(this, options);
+    try {
+      task.check();
+      const cells = [];
+      let completed = 0;
+      for (const cell of this._exportCells({
+        computedValues: false,
+        ...options,
+      })) {
+        if (cell) cells.push(cell);
+        if (++completed % task.batchSize === 0)
+          await task.yield({
+            phase: "snapshot",
+            completed,
+            total: this.cells.size,
+          });
+      }
+      task.report({ phase: "snapshot", completed, total: completed });
+      return this._workbook(cells, options);
+    } finally {
+      task.dispose();
+    }
   }
   /** Create a self-contained URL that restores this workbook from its hash. */
   createShareURL(baseURL = globalThis.location?.href) {

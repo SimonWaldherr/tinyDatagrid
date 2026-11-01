@@ -1,6 +1,12 @@
-import type { GridPlugin } from "./tinygrid.js";
+import type { GridPlugin, Workbook } from "./tinygrid.js";
+export interface StoredWorkbook {
+  workbook: Workbook;
+  savedAt: string;
+}
 export interface GridStorage {
-  save(): Promise<boolean>;
+  /** Without a snapshot, capture asynchronously when this queued write starts. */
+  save(snapshot?: Workbook): Promise<boolean>;
+  load(): Promise<StoredWorkbook | undefined>;
   restore(): Promise<boolean>;
   clear(): Promise<boolean>;
 }

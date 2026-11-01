@@ -1,5 +1,6 @@
 import { FormulaError } from "./formula-errors.js";
 import { parseDataJSON } from "./numeric-values.js";
+import { asyncTask } from "./async-task.js";
 import { TinyDatagrid, FormulaEngine, fromPortableValue } from "./tinygrid.js";
 /** Optional worksheet collection. Each sheet has its own data, selection and undo stack. */
 export function worksheets() {
@@ -7,6 +8,7 @@ export function worksheets() {
     name: "worksheets",
     setup(grid) {
       const exportOne = grid.exportWorkbook,
+        exportAsyncOne = grid.exportWorkbookAsync,
         importOne = grid.importWorkbook;
       const sheets = new Map(),
         models = new Map(),
@@ -561,6 +563,7 @@ export function worksheets() {
         },
         destroy() {
           grid.exportWorkbook = exportOne;
+          grid.exportWorkbookAsync = exportAsyncOne;
           grid.importWorkbook = importOne;
           sheets.clear();
           models.clear();
@@ -582,6 +585,58 @@ export function worksheets() {
         delete current.variables;
         delete current.dimensions;
         return current;
+      };
+      grid.exportWorkbookAsync = async function (options = {}) {
+        const task = asyncTask(grid, options);
+        try {
+          task.check();
+          const output = [],
+            total =
+              grid.cells.size +
+              [...sheets].reduce(
+                (n, [id, item]) =>
+                  n + (id === active ? 0 : item.sheet.cells.length),
+                0,
+              );
+          let completed = 0;
+          for (const [id, item] of sheets) {
+            let sheet;
+            if (id === active) {
+              const workbook = await exportAsyncOne.call(grid, {
+                signal: options.signal,
+                batchSize: task.batchSize,
+                onProgress: (progress) =>
+                  task.report({
+                    ...progress,
+                    completed: completed + progress.completed,
+                    total,
+                  }),
+              });
+              sheet = workbook.sheets[0];
+              completed += grid.cells.size;
+            } else {
+              const { cells, ...metadata } = item.sheet;
+              sheet = { ...structuredClone(metadata), cells: [] };
+              for (const cell of cells) {
+                sheet.cells.push(structuredClone(cell));
+                if (++completed % task.batchSize === 0)
+                  await task.yield({ phase: "snapshot", completed, total });
+              }
+            }
+            sheet.id = id;
+            output.push(withMeta(id, sheet));
+          }
+          task.report({ phase: "snapshot", completed, total });
+          return {
+            format: "tinyDatagrid-workbook",
+            version: 2,
+            formulaModel: "structured-v1",
+            activeSheetId: active,
+            sheets: output,
+          };
+        } finally {
+          task.dispose();
+        }
       };
       grid.importWorkbook = function (input, options = {}) {
         if (switching || options.replace === false)

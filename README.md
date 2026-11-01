@@ -68,6 +68,8 @@ source, test, and documentation files. Use `make fmt-check` to check without edi
 - Keyboard navigation, accessibility semantics, DE/EN labels, dark mode, and virtualization.
 - Sparse geometry for up to 10 million addressable rows and 32,768 columns;
   streaming range aggregates and cell-journal history. See [scalability](docs/scalability.md).
+- [Asynchronous saving and export](docs/persistence-and-export.md) with coalesced autosave,
+  bounded recovery, progress, cancellation and shared coordinate limits.
 - **Opt-in tools:** theme presets, JSON editor, charts, find/replace, formula assistance, and PNG/PDF export.
 - **Opt-in plugins:** frozen panes, conditional formatting, validation, worksheets, in-sheet pivots, and IndexedDB storage.
 - **Basic BI:** scoped KPI summaries, target comparisons, ranked groups, and source-row drill-through via the optional [BI module](docs/bi.md).

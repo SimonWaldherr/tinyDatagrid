@@ -11,13 +11,14 @@ import { worksheetTabs } from "../src/worksheet-tabs.js";
 import { cellContextMenu } from "../src/cell-context-menu.js";
 import { installAutosave } from "./autosave.js";
 import { demoWorkbook } from "./file-tools.js";
-import { exportPNG, printPDF } from "../src/exporters.js";
+import { exportPNG, printPDF, exportData } from "../src/exporters.js";
 import { inferDelimitedRows, inferDataValue } from "../src/data-types.js";
 import TinyDatagrid, {
   parseA1,
   toA1,
   parseCSV,
   detectDelimiter,
+  GridLimitError,
 } from "../src/tinygrid.js";
 import { translator, languages, detectLanguage } from "./i18n.js";
 import { installSheetGrowth, sheetLimits } from "./sheet-growth.js";
@@ -193,7 +194,9 @@ function notify(message) {
 }
 grid.on("validationerror", (detail) => notify(detail.message));
 function fail(error) {
-  notify(`${t("failed")}: ${error.message}`);
+  notify(
+    `${t("failed")}: ${error instanceof GridLimitError ? t("operationTooLarge") : error.message}`,
+  );
 }
 const fmt = (value) =>
   typeof value === "number"
@@ -1566,7 +1569,9 @@ $("#applyImport").onclick = async () => {
 };
 
 function download(filename, content, type) {
-  const url = URL.createObjectURL(new Blob([content], { type })),
+  const url = URL.createObjectURL(
+      content instanceof Blob ? content : new Blob([content], { type }),
+    ),
     a = document.createElement("a");
   a.href = url;
   a.download = filename;
@@ -1575,25 +1580,17 @@ function download(filename, content, type) {
 }
 const fileBase = () =>
   grid.sheetName.replace(/[\\/:*?"<>|]/g, "-") || "tiny-datagrid";
-function saveWorkbook() {
-  if (grid.commitEdit() === false) return;
-  download(
-    `${fileBase()}.json`,
-    JSON.stringify(grid.exportWorkbook(), null, 2),
-    "application/json;charset=utf-8",
-  );
-  notify(t("downloaded"));
+async function saveWorkbook() {
+  if (exportController || grid.commitEdit() === false) return;
+  $("#exportFormat").value = "workbook";
+  $("#exportRange").disabled = true;
+  showDialog("#exportDialog");
+  await runExport();
 }
 $("#fileLoadBtn").onclick = () => {
   if (!grid.readOnly) showDialog("#importDialog");
 };
-$("#fileSaveBtn").onclick = () => {
-  try {
-    saveWorkbook();
-  } catch (error) {
-    fail(error);
-  }
-};
+$("#fileSaveBtn").onclick = () => void saveWorkbook();
 $("#fileExportBtn").onclick = () => showDialog("#exportDialog");
 $("#loadDemoBtn").onclick = () => {
   if (["life", "mandelbrot"].includes($("#demoContents").value)) {
@@ -1618,60 +1615,84 @@ $("#exportFormat").onchange = () => {
   $("#exportRange").disabled = $("#exportFormat").value === "workbook";
 };
 $("#exportRange").disabled = true;
-$("#downloadBtn").onclick = async () => {
+let exportController = null;
+$("#cancelExportBtn").onclick = () => exportController?.abort();
+$("#exportDialog").addEventListener("close", () => exportController?.abort());
+$("#exportDialog").addEventListener("cancel", () => exportController?.abort());
+async function runExport() {
+  if (exportController) return;
   const button = $("#downloadBtn");
   try {
     if (grid.commitEdit() === false) return;
     const format = $("#exportFormat").value,
       base = fileBase(),
       range =
-        $("#exportRange").value === "selection"
-          ? selection()
-          : grid.getUsedRange();
+        format === "workbook"
+          ? undefined
+          : $("#exportRange").value === "selection"
+            ? selection()
+            : grid.getUsedRange();
     if (format === "pdf") {
       printPDF(grid, range);
       $("#exportDialog").close();
       return;
     }
+    exportController = new AbortController();
+    button.disabled = true;
+    $("#fileSaveBtn").disabled = true;
+    $("#exportFormat").disabled = true;
+    $("#exportRange").disabled = true;
+    $("#cancelExportBtn").hidden = false;
+    $("#exportProgress").hidden = false;
+    $("#exportStatus").textContent = t("exportPreparing");
     if (format === "png") {
-      button.disabled = true;
-      download(`${base}.png`, await exportPNG(grid, range), "image/png");
+      const blob = await exportPNG(grid, range);
+      exportController.signal.throwIfAborted();
+      download(`${base}.png`, blob);
     } else {
-      const formats = {
-        workbook: () => [
-          "json",
-          JSON.stringify(grid.exportWorkbook(), null, 2),
-          "application/json",
-        ],
-        csv: () => ["csv", grid.exportCSV({ range }), "text/csv"],
-        tsv: () => [
-          "tsv",
-          grid.exportTSV({ range }),
-          "text/tab-separated-values",
-        ],
-        json: () => [
-          "json",
-          JSON.stringify(
-            grid.exportJSON({ range }),
-            (_, value) => (typeof value === "bigint" ? String(value) : value),
-            2,
-          ),
-          "application/json",
-        ],
-        html: () => ["html", grid.exportHTML({ range }), "text/html"],
-        markdown: () => ["md", grid.exportMarkdown({ range }), "text/markdown"],
-      };
-      const [ext, content, type] = formats[format]();
-      download(`${base}.${ext}`, content, `${type};charset=utf-8`);
+      const blob = await exportData(grid, {
+        format,
+        range,
+        signal: exportController.signal,
+        onProgress({ phase, completed, total }) {
+          const progress = $("#exportProgress");
+          if (total) {
+            progress.max = total;
+            progress.value = completed;
+          } else progress.removeAttribute("value");
+          $("#exportStatus").textContent =
+            phase === "encode"
+              ? t("exportEncoding")
+              : `${t("exportPreparing")} ${total ? Math.round((completed / total) * 100) + "%" : ""}`;
+        },
+      });
+      const ext = { workbook: "json", markdown: "md" }[format] || format;
+      download(`${base}.${ext}`, blob);
     }
     $("#exportDialog").close();
     notify(t("downloaded"));
   } catch (error) {
-    fail(error);
+    const message =
+      error.name === "AbortError"
+        ? t("exportCancelled")
+        : error.code === "WORKBOOK_CHANGED"
+          ? t("exportChanged")
+          : error instanceof GridLimitError
+            ? t("operationTooLarge")
+            : error.message;
+    $("#exportStatus").textContent = message;
+    notify(message);
   } finally {
+    exportController = null;
     button.disabled = false;
+    $("#fileSaveBtn").disabled = false;
+    $("#exportFormat").disabled = false;
+    $("#exportRange").disabled = $("#exportFormat").value === "workbook";
+    $("#cancelExportBtn").hidden = true;
+    $("#exportProgress").hidden = true;
   }
-};
+}
+$("#downloadBtn").onclick = () => void runExport();
 $("#shareBtn").onclick = () => {
   try {
     grid.commitEdit();

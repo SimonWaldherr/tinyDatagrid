@@ -159,7 +159,8 @@ Removing the plugin leaves the currently selected sheet in the core grid.
 import { indexedDBStorage } from "tiny-datagrid/indexeddb";
 grid.use(indexedDBStorage({ key: "invoice-123" }));
 const storage = grid.feature("indexedDB");
-await storage.save();
+await storage.save(); // asynchronous snapshot, then queued write
+const saved = await storage.load(); // { workbook, savedAt } or undefined; no import
 await storage.restore(); // false if no saved document exists
 await storage.clear();
 ```
@@ -183,6 +184,9 @@ Destroy/removal cancels pending debounce work and closes the connection; call
 and await `save()` first when the host requires a final flush. Browser quotas,
 private browsing restrictions, and eviction can affect persistence. The plugin
 does not perform multi-tab conflict resolution or cloud synchronization.
+`save(snapshot)` can reuse an already detached workbook. The higher-level
+`installAutosave` adds coalescing, a maximum debounce interval and bounded recovery;
+see [saving and exporting](persistence-and-export.md).
 
 ## Incremental calculation and measurements
 

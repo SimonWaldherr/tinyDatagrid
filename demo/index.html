@@ -1515,7 +1515,16 @@
           <option value="selection" data-i18n="selection"></option></select
       ></label>
       <p class="hint" data-i18n="visualExportHint"></p>
+      <p class="hint" data-i18n="exportBudgetHint"></p>
+      <progress
+        id="exportProgress"
+        hidden
+        data-label="exportProgressLabel"
+        style="width: 100%"
+      ></progress>
+      <output id="exportStatus" role="status" aria-live="polite"></output>
       <div class="dialog-actions">
+        <button id="cancelExportBtn" hidden data-i18n="cancel"></button>
         <button id="downloadBtn" class="primary" data-i18n="download"></button>
       </div>
     </dialog>

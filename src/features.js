@@ -1,5 +1,6 @@
 import { DecimalValue, compareDecimals } from "./decimal-values.js";
 import { heatColor } from "./heatmap.js";
+import { checkDimensions } from "./limits.js";
 // Optional UI/data features. Import only the factories your host needs.
 import {
   parseJSONText,
@@ -54,6 +55,7 @@ function ranges(rules) {
       r.c1 > r.c2
     )
       throw new TypeError("Invalid rule range");
+    checkDimensions(r.r2 + 1, r.c2 + 1);
   }
 }
 function matches(value, rule) {

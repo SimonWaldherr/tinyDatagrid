@@ -1,3 +1,5 @@
+export { exportData } from "./async-export.js";
+
 function palette(grid) {
   const style = getComputedStyle(grid.el);
   return {

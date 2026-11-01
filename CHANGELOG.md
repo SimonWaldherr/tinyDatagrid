@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add cooperative workbook snapshots and row-wise file export with cancellation,
+  progress and independent cell/byte budgets; use them in the demo's Save/export actions.
+- Coalesce autosaves, reuse captured workbooks for IndexedDB and bounded recovery,
+  distinguish recovery-only saves, and retain the newer stored revision on restore.
+- Share coordinate limits across the core, SQL destinations, growth and rule tools;
+  expose structured limit errors and tighten TypeScript constructor/public API checks.
+
 - Preserve numeric formula tokens and precise decimal cell inference; exact integer
   powers and 34-significant-digit recurring division, averages and square roots.
 - Stream SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK over sparse ranges, with

@@ -224,8 +224,11 @@ growth.dispose();
 ```
 
 Autosave is explicit opt-in, needs a separate key per document, and installs
-the IndexedDB plugin. It retains a synchronous recovery copy when IndexedDB
-is unavailable. Growth does not add undo steps and pauses during editing,
+the IndexedDB plugin. It captures asynchronously, coalesces overlapping saves and
+retains a bounded recovery copy when possible. Use `maxWait` to bound the debounce
+and `recoveryMaxBytes` to cap recovery output; `pending` reports an unsaved revision.
+See [saving and exporting](persistence-and-export.md) for status states and lifecycle limits.
+Growth does not add undo steps and pauses during editing,
 read-only mode and external SQL sessions.
 
 ## Themes and visual exports

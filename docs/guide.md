@@ -268,13 +268,16 @@ On touch screens a tap selects a cell, a double tap edits it, and dragging scrol
 
 ### Automatic local saving
 
-The demo restores its last workbook on reload using IndexedDB, with a temporary
-localStorage recovery copy for pending writes. Cell-editor and formula-bar drafts
+The demo restores its last workbook on reload using IndexedDB, with a size-bounded
+localStorage recovery copy. Cell-editor and formula-bar drafts
 are saved separately while typing. The document header reports saving failures.
 Shared URLs have a separate local save slot, so reloading a shared sheet retains
 local edits without replacing the ordinary local worksheet. This is browser/origin
 storage, not cloud sync: clearing site data removes it. Export remains the durable
 backup option; private mode, quotas or disabled storage can prevent local saves.
+Saving coalesces overlapping requests and captures workbooks in batches. The header
+distinguishes a committed save from a recovery-only copy. See [saving and exporting](persistence-and-export.md)
+for deadlines, pending changes and page-close behavior.
 
 ### Table labels while scrolling
 
@@ -475,3 +478,5 @@ The core supports up to 10,000,000 addressable rows and 32,768 columns. This is
 an address space, not a promise to populate every cell. Actual capacity depends
 on data, formulas, device memory and browser storage. See [scalability](scalability.md)
 for sparse geometry, streaming aggregates, history, serialization and budgets.
+The demo uses [asynchronous file export](persistence-and-export.md) with progress,
+cancellation and separate cell/byte budgets.

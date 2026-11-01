@@ -191,7 +191,9 @@ during an external SQL session or a running grid transaction. An insertion into
 an existing sheet is one undo step. Creating a worksheet uses the worksheet
 collection's normal lifecycle; undo operates within each worksheet.
 Output tables are capped at 500,000 cells including headers; destinations are
-limited to 2,000,000 rows and 16,384 columns.
+limited to the core's 10,000,000 rows and 32,768 columns. The output-cell budget
+is independent of destination coordinates; exceeding either produces a structured
+`GridLimitError`. See [limits and budgets](persistence-and-export.md#coordinates-work-budgets-and-types).
 
 SQL results and their output tables retain source-range provenance for the
 [Vorgänger/Nachfolger inspector](lineage.md), including multi-step paths through

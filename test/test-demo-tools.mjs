@@ -223,7 +223,7 @@ const autosave = await installAutosave(grid, {
 grid.emit("mutation", {});
 await autosave.save();
 assert.ok(stored.has("doc:recovery"));
-assert.equal(statuses.at(-1), "savedLocal");
+assert.equal(statuses.at(-1), "savedRecovery");
 grid.edit(1, 0, "unfinished");
 grid.editor.dispatchEvent(new window.Event("input"));
 assert.equal(JSON.parse(stored.get("doc:draft")).value, "unfinished");

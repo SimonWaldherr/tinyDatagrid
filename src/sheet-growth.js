@@ -1,5 +1,6 @@
 // Add empty space as the user approaches an edge.
 // Growth is navigation, so it must not consume an undo step or change selection.
+import { gridLimits } from "./limits.js";
 export const sheetLimits = { rows: 10000, columns: 256 };
 
 export function installSheetGrowth(
@@ -15,8 +16,8 @@ export function installSheetGrowth(
     ![maxRows, maxColumns, rowStep, columnStep].every(
       (value) => Number.isSafeInteger(value) && value > 0,
     ) ||
-    maxRows > 10_000_000 ||
-    maxColumns > 32_768
+    maxRows > gridLimits.rows ||
+    maxColumns > gridLimits.columns
   )
     throw new TypeError("Invalid sheet growth limits or increments");
   let previousTop = grid.scroll.scrollTop,

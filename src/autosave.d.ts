@@ -5,11 +5,18 @@ export interface AutosaveOptions {
   key: string;
   database?: string;
   delay?: number;
+  /** Save at least this often during continuous edits; default 5,000 ms. */
+  maxWait?: number;
+  /** Maximum UTF-8 bytes in localStorage recovery; default 1 MiB, 0 disables it. */
+  recoveryMaxBytes?: number;
   formula?: HTMLInputElement | HTMLTextAreaElement;
-  status?: (key: "savingLocal" | "savedLocal" | "saveFailed") => void;
+  status?: (
+    key: "savingLocal" | "savedLocal" | "savedRecovery" | "saveFailed",
+  ) => void;
 }
 export interface Autosave extends DisposableTool {
   readonly restored: boolean;
+  readonly pending: boolean;
   save(withBackup?: boolean): Promise<void>;
   restoreDraft(): void;
 }

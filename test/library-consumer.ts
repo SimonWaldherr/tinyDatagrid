@@ -42,6 +42,12 @@ import { installCharts } from "tiny-datagrid/charts";
 import { featureTranslator } from "tiny-datagrid/feature-i18n";
 import "tiny-datagrid/style.css";
 import "tiny-datagrid/demo-tools.css";
+import { exportData } from "tiny-datagrid/exporters";
+import {
+  gridLimits,
+  GridLimitError,
+  type WorkbookDimensions,
+} from "tiny-datagrid";
 
 const grid: TinyDatagrid = new TinyGrid("#grid", {
   rows: 100,
@@ -112,6 +118,26 @@ demoTools.installSheetGrowth(grid).dispose();
 const workbook: Workbook = demoWorkbook("budget", "de");
 grid.importWorkbook(workbook);
 grid.exportWorkbook({ computedValues: false });
+void grid.exportWorkbookAsync({
+  batchSize: 250,
+  onProgress: ({ completed }) => void completed,
+});
+void exportData(grid, {
+  format: "csv",
+  range,
+  signal: new AbortController().signal,
+  maxCells: 1000,
+  maxBytes: 1024 * 1024,
+});
+const dimensions: WorkbookDimensions = {
+  rows: gridLimits.rows,
+  columns: gridLimits.columns,
+  defaultRowHeight: 28,
+  rowHeightOverrides: [[100, 40]],
+};
+void dimensions;
+const limitError = new GridLimitError("EXPORT_BYTES", 100, 101, "Too large");
+limitError.code;
 grid.setCell(1, 0, DecimalValue.parse("0.1"));
 grid.setCell(1, 1, CalendarDate.parse("2026-10-04"));
 grid.setConditionalFormats([heatmapRule(range, { min: 0, max: 1 })]);
@@ -151,6 +177,14 @@ const adapter = new SQLClientAdapter(grid, {
 void adapter.query("SELECT x FROM source");
 
 // Incorrect public API usage must fail even with legacy grid extension fields.
+// @ts-expect-error Unknown constructor options are rejected.
+new TinyDatagrid("#grid", { colums: 12 });
+// @ts-expect-error A misspelled public method must not silently become any.
+grid.exportWorkbok();
+// @ts-expect-error Export formats are checked.
+void exportData(grid, { format: "xls" });
+// @ts-expect-error Budgets must be numbers.
+void exportData(grid, { maxBytes: "64MB" });
 // @ts-expect-error Local SQL parameters are positional arrays.
 sql.query("SELECT * FROM table1", { limit: 50 });
 // @ts-expect-error Simulations expose exactly these two preview modes.

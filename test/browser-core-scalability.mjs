@@ -19,12 +19,22 @@ const server = http.createServer(async (request, response) => {
       );
       return;
     }
-    const file = path.resolve(root, "." + route);
-    if (!file.startsWith(root) || !route.startsWith("/src/"))
+    const file = path.resolve(
+      root,
+      "." + (route === "/demo/" ? "/demo/index.html" : route),
+    );
+    if (
+      !file.startsWith(root) ||
+      !["/src/", "/demo/"].some((prefix) => route.startsWith(prefix))
+    )
       throw new Error("Invalid path");
     response.setHeader(
       "Content-Type",
-      file.endsWith(".css") ? "text/css" : "text/javascript",
+      file.endsWith(".html")
+        ? "text/html"
+        : file.endsWith(".css")
+          ? "text/css"
+          : "text/javascript",
     );
     response.end(await readFile(file));
   } catch {
@@ -127,8 +137,132 @@ try {
   await page.evaluate(() => grid.redo());
   assert.equal(await page.evaluate(() => grid.getComputedValue(0, 1)), 9);
   assert.deepEqual(errors, []);
+  const io = await page.evaluate(async () => {
+    const { exportData } = await import("/src/exporters.js");
+    const { installAutosave } = await import("/src/autosave.js");
+    let yielded = false;
+    setTimeout(() => {
+      yielded = true;
+    }, 0);
+    const snapshot = await grid.exportWorkbookAsync({ batchSize: 1 });
+    const cancel = new AbortController();
+    let aborted = false;
+    try {
+      await exportData(grid, {
+        signal: cancel.signal,
+        batchSize: 1,
+        onProgress() {
+          cancel.abort();
+        },
+      });
+    } catch (error) {
+      aborted = error.name === "AbortError";
+    }
+    const saving = await installAutosave(grid, {
+      key: "browser-regression",
+      recoveryMaxBytes: 0,
+    });
+    grid.setCell(0, 0, 123);
+    const first = saving.save(),
+      joined = saving.save();
+    await first;
+    const stored = await grid.feature("indexedDB").load();
+    const pending = saving.pending;
+    saving.dispose();
+    grid.setCell(0, 0, 999);
+    const restored = await installAutosave(grid, { key: "browser-regression" });
+    const restoredValue = grid.getRawValue(0, 0);
+    const didRestore = restored.restored;
+    restored.dispose();
+    return {
+      yielded,
+      aborted,
+      joined: first === joined,
+      pending,
+      restoredValue,
+      didRestore,
+      savedValue: stored.workbook.cells.find(
+        (cell) => cell.row === 0 && cell.col === 0,
+      ).value,
+      compact: snapshot.dimensions.rowHeightOverrides.length === 0,
+    };
+  });
+  assert.deepEqual(io, {
+    yielded: true,
+    aborted: true,
+    joined: true,
+    pending: false,
+    restoredValue: 123,
+    didRestore: true,
+    savedValue: 123,
+    compact: true,
+  });
+
+  // Exercise the demo's actual Save / export / cancel controls and downloaded bytes.
+  await page.goto(`http://127.0.0.1:${server.address().port}/demo/`);
+  await page.waitForFunction(() => !document.querySelector(".app").inert);
+  await page.locator("#tab-file").click();
+  await page.locator("#demoContents").selectOption("budget");
+  await page.locator("#loadDemoBtn").click();
+  await page.evaluate(async () => {
+    const { default: Grid } = await import("/src/tinygrid.js");
+    const read = Grid.prototype.getUsedRange;
+    window.rangeReads = 0;
+    window.restoreRangeReader = () => {
+      Grid.prototype.getUsedRange = read;
+    };
+    Grid.prototype.getUsedRange = function (...args) {
+      window.rangeReads++;
+      return read.apply(this, args);
+    };
+  });
+  const workbookDownload = page.waitForEvent("download");
+  await page.locator("#fileSaveBtn").click();
+  const downloaded = await workbookDownload;
+  const file = JSON.parse(await readFile(await downloaded.path(), "utf8"));
+  assert.equal(file.format, "tinyDatagrid-workbook");
+  assert.ok(file.sheets[0].cells.length > 10);
+  assert.equal(
+    await page.evaluate(() => window.rangeReads),
+    0,
+    "Workbook Save must not scan a dense used range or settle every formula",
+  );
+  await page.evaluate(() => window.restoreRangeReader());
+  await page.locator("#exportBtn").click();
+  await page.locator("#exportFormat").selectOption("csv");
+  const csvDownload = page.waitForEvent("download");
+  await page.locator("#downloadBtn").click();
+  const csv = await csvDownload;
+  assert.ok(csv.suggestedFilename().endsWith(".csv"));
+  assert.ok((await readFile(await csv.path(), "utf8")).includes("\r\n"));
+  await page.locator("#exportBtn").click();
+  await page.locator("#exportFormat").selectOption("workbook");
+  await page.evaluate(() => {
+    document.querySelector("#downloadBtn").click();
+    document.querySelector("#cancelExportBtn").click();
+  });
+  await page.waitForFunction(
+    () => !document.querySelector("#downloadBtn").disabled,
+  );
+  assert.match(
+    await page.locator("#exportStatus").textContent(),
+    /cancelled|abgebrochen/i,
+  );
+  if (process.env.TINYGRID_SCREENSHOT_PATH) {
+    await page.screenshot({ path: process.env.TINYGRID_SCREENSHOT_PATH });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: process.env.TINYGRID_SCREENSHOT_PATH.replace(
+        /\.png$/,
+        "-mobile.png",
+      ),
+    });
+    assert.ok(await page.locator("#downloadBtn").isVisible());
+    assert.ok(await page.locator("#exportStatus").isVisible());
+  }
+  assert.deepEqual(errors, []);
   console.log(
-    "Browser scalability passed: 10M rows/32768 columns, compressed scrolling, frozen panes, hit testing, editing and undo/redo",
+    "Browser passed: large-grid geometry, editing/undo, asynchronous export/cancel, real IndexedDB save/restore and demo downloads",
   );
 } finally {
   await browser?.close();

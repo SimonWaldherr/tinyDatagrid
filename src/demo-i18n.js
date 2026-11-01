@@ -219,6 +219,26 @@ const text = {
     "Preview: first 200 result rows.",
   ],
   savingLocal: ["Wird lokal gespeichert …", "Saving locally …"],
+  savedRecovery: [
+    "In lokaler Wiederherstellungskopie gesichert",
+    "Saved in local recovery copy",
+  ],
+  exportPreparing: ["Datei wird vorbereitet …", "Preparing file …"],
+  exportEncoding: ["Datei wird geschrieben …", "Writing file …"],
+  exportProgressLabel: ["Exportfortschritt", "Export progress"],
+  exportCancelled: ["Export abgebrochen", "Export cancelled"],
+  exportChanged: [
+    "Das Dokument wurde geändert. Bitte den Export erneut starten.",
+    "The document changed. Please restart the export.",
+  ],
+  exportBudgetHint: [
+    "Datenexport: bis zu 5 Millionen Zellen und 64 MiB. Für große, dünn belegte Blätter Workbook wählen. Der Export kann abgebrochen werden.",
+    "Data export: up to 5 million cells and 64 MiB. Choose Workbook for large, sparsely populated sheets. Export can be cancelled.",
+  ],
+  operationTooLarge: [
+    "Die Grenze für diese Aktion wurde erreicht. Bitte einen kleineren Bereich wählen; für dünn belegte Blätter das Workbook-Format verwenden.",
+    "This operation exceeds its limit. Choose a smaller range; use Workbook format for sparsely populated sheets.",
+  ],
   savedLocal: ["Lokal gespeichert", "Saved locally"],
   saveFailed: [
     "Lokales Speichern nicht verfügbar – bitte exportieren",

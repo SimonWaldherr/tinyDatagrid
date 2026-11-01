@@ -1,25 +1,14 @@
 // Compact row geometry. Only nondefault heights consume per-row storage.
 // Numeric indexing is retained for editors, exporters and host integrations.
-export const MAX_ROWS = 10_000_000;
-export const MAX_COLUMNS = 32_768;
+import { gridLimits } from "./limits.js";
+export { checkDimensions } from "./limits.js";
+export const MAX_ROWS = gridLimits.rows;
+export const MAX_COLUMNS = gridLimits.columns;
 export const DENSE_ROWS = 20_000;
 const indexOf = (key) =>
   typeof key === "string" && /^(0|[1-9]\d*)$/.test(key) ? Number(key) : null;
 const height = (value, fallback = 28) =>
   Math.max(18, Math.min(400, Number(value) || fallback));
-export function checkDimensions(rows, columns) {
-  if (
-    !Number.isInteger(rows) ||
-    rows < 1 ||
-    rows > MAX_ROWS ||
-    !Number.isInteger(columns) ||
-    columns < 1 ||
-    columns > MAX_COLUMNS
-  )
-    throw new RangeError(
-      `Grid dimensions exceed ${MAX_ROWS} rows or ${MAX_COLUMNS} columns`,
-    );
-}
 export class RowAxis {
   constructor(length, defaultHeight, overrides = []) {
     this.length = length;

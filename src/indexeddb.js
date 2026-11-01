@@ -75,15 +75,22 @@ export function indexedDBStorage({
         return next;
       }
       const api = {
-        save() {
-          const workbook = grid.exportWorkbook({ computedValues: false });
+        /** A supplied snapshot is reused; queued calls otherwise capture on their turn. */
+        save(snapshot) {
           return serialize(async () => {
+            if (disposed) throw new Error("Storage plugin disposed");
+            const workbook =
+              snapshot ??
+              (await grid.exportWorkbookAsync({ computedValues: false }));
             await run("readwrite", (store) =>
               store.put({ workbook, savedAt: new Date().toISOString() }, key),
             );
             grid.emit("storage", { type: "saved", key });
             return true;
           });
+        },
+        load() {
+          return serialize(() => run("readonly", (store) => store.get(key)));
         },
         restore() {
           clearTimeout(timer);

@@ -69,10 +69,10 @@ assert.deepEqual(
 );
 assert.deepEqual(
   parseRangeText("B:B"),
-  { r1: 0, c1: 1, r2: 1048575, c2: 1 },
+  { r1: 0, c1: 1, r2: 9999999, c2: 1 },
   "a whole column",
 );
-assert.deepEqual(parseRangeText("c:b"), { r1: 0, c1: 1, r2: 1048575, c2: 2 });
+assert.deepEqual(parseRangeText("c:b"), { r1: 0, c1: 1, r2: 9999999, c2: 2 });
 for (const bad of [
   "",
   "B",
@@ -99,8 +99,13 @@ assert.deepEqual(parseRangeText("H1", { columns: 8 }), {
 });
 assert.equal(describeRange({ r1: 1, c1: 1, r2: 1, c2: 1 }), "B2");
 assert.equal(describeRange({ r1: 1, c1: 1, r2: 8, c2: 3 }), "B2:D9");
-assert.equal(describeRange({ r1: 0, c1: 1, r2: 1048575, c2: 1 }), "B:B");
+assert.equal(describeRange({ r1: 0, c1: 1, r2: 9999999, c2: 1 }), "B:B");
 assert.equal(describeRange(parseRangeText("B:D")), "B:D");
+assert.equal(
+  describeRange({ r1: 0, c1: 1, r2: 1048575, c2: 1 }),
+  "B1:B1048576",
+  "legacy stored ranges retain their explicit bounds",
+);
 
 // taking a rectangle out of another keeps exactly the cells that were not covered
 const cells = (range) => {

@@ -54,11 +54,14 @@ cells and metadata, including when `historyLimit: 0` disables retained undo.
 
 Operations that must materialize a dense rectangle use the configurable
 `maxRangeCells` option, default **1,000,000**. This applies to range matrices,
-`toArray` (and exports using it), dense selection formatting, fill and move.
+`toArray` (and synchronous exports using it), dense selection formatting, fill and move.
 Oversized formula matrices return `#NUM!`; host APIs throw `RangeError`.
 Streaming aggregates and sparse clearing are exempt. This budget does not cap
 the number of stored cells in a workbook. Choose a larger finite positive safe
 integer only when the host can afford the resulting allocations.
+The [asynchronous exporter](persistence-and-export.md) reads rows without a dense
+matrix and uses separate cell/byte budgets. Autosave takes cooperative snapshots,
+reuses them for storage and recovery, and caps localStorage recovery size.
 
 ```js
 const grid = new TinyDatagrid(container, {
@@ -85,6 +88,7 @@ browser. Run `node test/browser-core-scalability.mjs`; use
 `TINYGRID_PLAYWRIGHT_PATH` for an external Playwright module and
 `TINYGRID_BROWSER_CHANNEL=chrome` for an installed Chrome. It checks real cell
 rendering, both compressed axes, frozen panes, hit testing, wheel precision,
-editing, recalculation and undo/redo. It starts a temporary loopback server and
+editing, recalculation and undo/redo, real IndexedDB save/restore, asynchronous
+export and the demo's Save/download/cancel controls. It starts a temporary loopback server and
 closes the browser/server afterward. Touch scrolling on physical devices is
 not covered by this regression.

@@ -181,7 +181,7 @@ assert.throws(
   () => sql.query(`SELECT * INTO "${originalName}":A1 FROM table1`),
   /overlaps/,
 );
-for (const cell of ["A0", "A2000001", "ZZZZ5"])
+for (const cell of ["A0", "A10000001", "ZZZZ5"])
   assert.throws(() => sql.query(`SELECT * INTO Bad:${cell} FROM table1`));
 assert.throws(
   () => sql.query("SELECT missing INTO Bad:A1 FROM table1"),

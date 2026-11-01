@@ -1,4 +1,5 @@
 import { sourceLineage, checkedLineage } from "./lineage.js";
+import { gridLimits, GridLimitError, checkDimensions } from "./limits.js";
 import { analysisRecords } from "./analysis.js";
 import { DecimalValue, compactDecimal } from "./decimal-values.js";
 import { compareScalars, scalarKind } from "./scalar-comparison.js";
@@ -827,15 +828,18 @@ function placeSQLResult(
     )
   )
     throw new TypeError("Invalid SQL result schema");
-  if ((result.rows.length + 1) * result.columns.length > 500000)
-    throw new RangeError("SQL result table exceeds 500,000 cells");
-  if (
-    startRow + result.rows.length >= 2000000 ||
-    startCol + result.columns.length > 16384
-  )
-    throw new RangeError(
-      "SQL destination exceeds 2,000,000 rows or 16,384 columns",
+  const cells = (result.rows.length + 1) * result.columns.length;
+  if (cells > gridLimits.sqlResultCells)
+    throw new GridLimitError(
+      "SQL_RESULT_CELLS",
+      gridLimits.sqlResultCells,
+      cells,
+      "SQL result table exceeds 500,000 cells",
     );
+  checkDimensions(
+    startRow + result.rows.length + 1,
+    startCol + result.columns.length,
+  );
   const base = String(sheetName).trim();
   if (!base || base.length > 80)
     throw new TypeError("Sheet name must contain 1–80 characters");
@@ -966,15 +970,7 @@ function destinationCell(cell) {
   if (typeof cell !== "string" || !/^[A-Za-z]+[1-9]\d*$/.test(cell))
     throw new TypeError("Invalid SQL destination cell");
   const { row, col } = parseA1(cell);
-  if (
-    !Number.isSafeInteger(row) ||
-    !Number.isSafeInteger(col) ||
-    row >= 2000000 ||
-    col >= 16384
-  )
-    throw new RangeError(
-      "SQL destination exceeds 2,000,000 rows or 16,384 columns",
-    );
+  checkDimensions(row + 1, col + 1);
   return { startRow: row, startCol: col };
 }
 

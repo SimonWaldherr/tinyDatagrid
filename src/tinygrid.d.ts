@@ -69,10 +69,23 @@ export interface WorkbookCell {
   valueType?: string;
   [key: string]: unknown;
 }
+export interface WorkbookDimensions {
+  rows: number;
+  columns: number;
+  rowHeights?: number[];
+  defaultRowHeight?: number;
+  rowHeightOverrides?: Array<[number, number]>;
+  columnWidths?: number[];
+  hiddenRows?: number[];
+  hiddenColumns?: number[];
+}
 export interface WorkbookSheet {
   id?: string;
   name?: string;
   cells: WorkbookCell[];
+  dimensions?: WorkbookDimensions;
+  hidden?: boolean;
+  tabColor?: string;
   [key: string]: unknown;
 }
 export interface Workbook {
@@ -81,6 +94,7 @@ export interface Workbook {
   activeSheetId?: string;
   sheets?: WorkbookSheet[];
   cells?: WorkbookCell[];
+  dimensions?: WorkbookDimensions;
   [key: string]: unknown;
 }
 export interface WorkbookOptions {
@@ -110,7 +124,27 @@ export interface ColorScaleRule {
 /** Synchronous host-provided callback. Ranges arrive as two-dimensional arrays. */
 export type SpreadsheetFunction = (...args: any[]) => unknown;
 export type SpreadsheetFunctions = Record<string, SpreadsheetFunction>;
-export type TinyDatagridOptions = Record<string, unknown> & {
+export interface TinyDatagridOptions {
+  rows?: number;
+  columns?: number;
+  rowHeight?: number;
+  columnWidth?: number;
+  headerWidth?: number;
+  headerHeight?: number;
+  locale?: string;
+  ariaLabel?: string;
+  sheetName?: string;
+  data?: unknown[][];
+  variables?: Record<string, unknown>;
+  readOnly?: boolean;
+  virtualization?: boolean;
+  virtualizationOverscan?: number;
+  tableAutoExpand?: boolean;
+  maxSpillCells?: number;
+  functionHelp?: Record<
+    string,
+    import("./function-help.js").FunctionDescription
+  >;
   protectFormulas?: boolean;
   dataLocale?: string;
   dateParsing?: DateParsing;
@@ -121,7 +155,24 @@ export type TinyDatagridOptions = Record<string, unknown> & {
   maxRangeCells?: number;
   plugins?: GridPlugin[];
   externalVariables?: Record<string, unknown>;
-};
+}
+export interface ExportProgress {
+  phase: "snapshot" | "encode" | "rows";
+  completed: number;
+  /** Absent when the final encoded byte count is not known yet. */
+  total?: number;
+}
+export interface AsyncOptions {
+  signal?: AbortSignal;
+  batchSize?: number;
+  onProgress?: (progress: ExportProgress) => void;
+}
+export interface AsyncWorkbookOptions extends WorkbookOptions, AsyncOptions {}
+export class WorkbookChangedError extends Error {
+  constructor();
+  readonly code: "WORKBOOK_CHANGED";
+}
+export { gridLimits, GridLimitError } from "./limits.js";
 export type DateParsing = "iso" | "locale" | false;
 export type DelimitedImportOptions = {
   startRow?: number;
@@ -134,7 +185,7 @@ export type DelimitedImportOptions = {
   headerRow?: number;
 };
 
-export interface GridPlugin<T = any> {
+export interface GridPlugin<T = unknown> {
   name: string;
   setup(grid: TinyDatagrid): T & { destroy?: () => void };
 }
@@ -196,7 +247,7 @@ export type SpillRange = {
 
 export class TinyDatagrid {
   constructor(container: string | Element, options?: TinyDatagridOptions);
-  [key: string]: any;
+  readonly options: TinyDatagridOptions;
   rowCount: number;
   colCount: number;
   sheetName: string;
@@ -267,6 +318,8 @@ export class TinyDatagrid {
     options?: ExportOptions & { headerRow?: number },
   ): Record<string, unknown>[];
   exportWorkbook(options?: WorkbookOptions): Workbook;
+  /** Yield between batches; reject if the workbook changes during capture. Defaults to computedValues: false. */
+  exportWorkbookAsync(options?: AsyncWorkbookOptions): Promise<Workbook>;
   importWorkbook(
     input: Workbook | string,
     options?: WorkbookOptions & {
@@ -309,7 +362,7 @@ export class TinyDatagrid {
   };
   replaceFormulaWithValue(row: number, col: number, value?: unknown): boolean;
   use(plugin: GridPlugin): this;
-  feature<T = any>(name: string): T | undefined;
+  feature<T = unknown>(name: string): T | undefined;
   removePlugin(name: string): boolean;
   setFreezePanes(panes?: { rows?: number; columns?: number }): this;
   setConditionalFormats(rules?: Array<ConditionalRule | ColorScaleRule>): this;

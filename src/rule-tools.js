@@ -1,10 +1,11 @@
 import { toA1, parseA1, colToName, nameToCol } from "./tinygrid.js";
 import { inferDataValue } from "./data-types.js";
+import { gridLimits } from "./limits.js";
 
 // Point-and-click rules for the conditionalFormatting() and dataValidation() plugins. The helpers change the
 // grid's rule lists as one undoable step; installRuleTools() binds them to the demo's buttons and dialogs.
 
-const WHOLE_COLUMN = 1048575; // last row of a range that covers whole columns
+const WHOLE_COLUMN = gridLimits.rows - 1;
 const MAX_LIST_VALUES = 1000;
 
 export const CONDITIONS = [
@@ -69,12 +70,12 @@ const overlaps = (a, b) =>
   a.r1 <= b.r2 && a.r2 >= b.r1 && a.c1 <= b.c2 && a.c2 >= b.c1;
 
 /** "B2", "B2:D9" or whole columns such as "B:B" and "B:D". Returns a normalized range or null. */
-export function parseRangeText(text, { columns = 16384 } = {}) {
+export function parseRangeText(text, { columns = gridLimits.columns } = {}) {
   const parts = String(text ?? "")
     .replace(/\s+/g, "")
     .split(":");
   if (!parts[0] || parts.length > 2) return null;
-  const whole = (part) => /^\$?[A-Za-z]{1,3}$/.test(part);
+  const whole = (part) => /^\$?[A-Za-z]+$/.test(part);
   let a, b;
   if (parts.length === 2 && parts.every(whole)) {
     a = { row: 0, col: nameToCol(parts[0].replace("$", "")) };
@@ -86,7 +87,9 @@ export function parseRangeText(text, { columns = 16384 } = {}) {
   if (
     !a ||
     !b ||
-    [a.row, b.row, a.col, b.col].some((n) => n < 0) ||
+    [a.row, b.row, a.col, b.col].some(
+      (n) => !Number.isSafeInteger(n) || n < 0,
+    ) ||
     Math.max(a.col, b.col) >= columns ||
     Math.max(a.row, b.row) > WHOLE_COLUMN
   )

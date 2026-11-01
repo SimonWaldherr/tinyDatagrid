@@ -6,6 +6,7 @@ import {
   divideNumbers,
 } from "./numeric-operations.js";
 import { JSONValue, fromJSONData } from "./json-values.js";
+import { gridLimits, GridLimitError, positiveInteger } from "./limits.js";
 const blank = (value) => value === "" || value == null;
 export const rangeAggregates = new Set([
   "SUM",
@@ -37,18 +38,22 @@ export function rangeFromNode(node, parseA1) {
 }
 export function checkDenseRange(grid, range) {
   const cells = (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
-  const limit = grid.options?.maxRangeCells ?? 1_000_000;
+  const limit = positiveInteger(
+    grid.options?.maxRangeCells ?? gridLimits.rangeCells,
+    "maxRangeCells",
+  );
   if (
     ![range.r1, range.r2, range.c1, range.c2].every(
       (n) => Number.isSafeInteger(n) && n >= 0,
     ) ||
     !Number.isSafeInteger(cells) ||
     cells < 1 ||
-    !Number.isSafeInteger(limit) ||
-    limit < 1 ||
     cells > limit
   )
-    throw new RangeError(
+    throw new GridLimitError(
+      "RANGE_CELLS",
+      limit,
+      cells,
       "Range exceeds maxRangeCells; use an aggregate or a smaller range",
     );
 }
