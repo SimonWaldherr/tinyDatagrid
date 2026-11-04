@@ -742,9 +742,53 @@
           hidden
           data-title="jsonEditHint"
         ></button>
-        <div id="statistics" class="statistics"></div>
+        <button
+          id="statisticsToggle"
+          type="button"
+          class="statistics-toggle"
+          popovertarget="statisticsPopover"
+          aria-controls="statisticsPopover"
+          data-label="selectionStatistics"
+          aria-describedby="statistics"
+        >
+          <span id="statistics" class="statistics"></span
+          ><span aria-hidden="true">▴</span>
+        </button>
+        <div class="grid-zoom" role="group" data-label="tableZoom">
+          <button id="zoomOut" type="button" data-label="zoomOut">−</button>
+          <input
+            id="gridZoom"
+            type="range"
+            min="25"
+            max="400"
+            step="5"
+            value="100"
+            data-label="tableZoom"
+          />
+          <button id="zoomIn" type="button" data-label="zoomIn">+</button>
+          <button
+            id="zoomReset"
+            type="button"
+            data-title="resetZoom"
+            aria-label="100 %"
+          >
+            <output id="zoomValue" for="gridZoom">100 %</output>
+          </button>
+        </div>
       </footer>
     </div>
+    <section
+      id="statisticsPopover"
+      class="statistics-popover"
+      popover="auto"
+      role="region"
+      tabindex="-1"
+      aria-labelledby="statisticsTitle"
+    >
+      <h2 id="statisticsTitle" data-i18n="selectionStatistics"></h2>
+      <p class="hint" data-i18n="statisticsHint"></p>
+      <dl id="statisticsDetails" aria-live="polite" aria-atomic="true"></dl>
+    </section>
     <div
       id="notice"
       class="notice"
@@ -1514,6 +1558,21 @@
           <option value="sheet" data-i18n="usedCells"></option>
           <option value="selection" data-i18n="selection"></option></select
       ></label>
+      <div id="exportTextSafety" hidden>
+        <label class="check"
+          ><input
+            id="escapeFormulas"
+            type="checkbox"
+            checked
+            aria-describedby="escapeFormulasHint" />
+          <span data-i18n="escapeFormulas"></span
+        ></label>
+        <p
+          id="escapeFormulasHint"
+          class="hint"
+          data-i18n="escapeFormulasHint"
+        ></p>
+      </div>
       <p class="hint" data-i18n="visualExportHint"></p>
       <p class="hint" data-i18n="exportBudgetHint"></p>
       <progress

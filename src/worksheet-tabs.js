@@ -1,4 +1,5 @@
 import { featureTranslator } from "./feature-i18n.js";
+import { keepDialogFocus } from "./dialog-focus.js";
 
 // Worksheet tab strip with a context menu; requires worksheets() to be installed first.
 //   Right click, long press (touch), the ContextMenu key or Shift+F10 open the menu.
@@ -49,6 +50,7 @@ export function worksheetTabs({ container, translate } = {}) {
       menu.hidden = true;
       grid.el.append(menu);
       const dialog = document.createElement("dialog");
+      dialog.addEventListener("keydown", keepDialogFocus);
       dialog.className = "tg-worksheet-dialog";
       document.body.append(dialog);
       let renaming = null,

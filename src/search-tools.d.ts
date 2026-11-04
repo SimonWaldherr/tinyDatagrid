@@ -7,10 +7,13 @@ export type SearchToolsOptions = {
   t: (key: string) => string;
   notify: (message: string) => void;
   selection: () => CellRange;
+  /** Current UI locale for number formatting and plural selection. Defaults to grid.locale. */
+  language?: () => string;
 };
 /** Connect find/replace controls, regex options, and Ctrl/Cmd+F and Ctrl+H shortcuts. */
 export function installSearch(options: SearchToolsOptions): {
   open(withReplace?: boolean): void;
   refresh(move?: boolean): void;
   close(): void;
+  dispose(): void;
 };

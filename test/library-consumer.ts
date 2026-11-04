@@ -43,6 +43,7 @@ import { featureTranslator } from "tiny-datagrid/feature-i18n";
 import "tiny-datagrid/style.css";
 import "tiny-datagrid/demo-tools.css";
 import { exportData } from "tiny-datagrid/exporters";
+import { installSearch } from "tiny-datagrid/search-tools";
 import {
   gridLimits,
   GridLimitError,
@@ -111,13 +112,31 @@ installAutosave(grid, {
   status: (state) => host.notify(state),
 }).then((api) => {
   api.restoreDraft();
+  api.clearDraft();
   void api.save();
   api.dispose();
 });
 demoTools.installSheetGrowth(grid).dispose();
+document.addEventListener("keydown", demoTools.keepDialogFocus);
 const workbook: Workbook = demoWorkbook("budget", "de");
 grid.importWorkbook(workbook);
 grid.exportWorkbook({ computedValues: false });
+grid.setZoom(125);
+const selectionStats = grid.getSelectionStatistics(range, {
+  visibleOnly: true,
+  maxMedianValues: 100000,
+});
+selectionStats.median;
+selectionStats.numericCount;
+grid.zoom;
+grid.exportCSV({ escapeFormulas: true });
+grid.exportTSV({ escapeFormulas: true });
+void exportData(grid, { format: "csv", escapeFormulas: true });
+installSearch({
+  ...host,
+  $: (selector) => document.querySelector<HTMLElement>(selector)!,
+  language: () => "de-DE",
+}).dispose();
 void grid.exportWorkbookAsync({
   batchSize: 250,
   onProgress: ({ completed }) => void completed,

@@ -1,4 +1,5 @@
 import { heatmapRule } from "./heatmap.js";
+import { keepDialogFocus } from "./dialog-focus.js";
 import { applyToolLabels } from "./tool-labels.js";
 
 export function installAnalysisTools({
@@ -104,6 +105,7 @@ export function installAnalysisTools({
     }),
   );
   const dialog = document.createElement("dialog");
+  dialog.addEventListener("keydown", keepDialogFocus);
   dialog.className = "analysis-details";
   dialog.setAttribute("aria-labelledby", "sourceRowsTitle");
   const title = document.createElement("h2");

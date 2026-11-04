@@ -181,6 +181,47 @@ For embedded grids, pass `{ locale: 'de' }` or call `grid.setLocale('en')`. Grid
 
 See [feature configuration and measurements](plugins.md) for incremental recalculation, freeze panes, conditional formatting, validation, worksheet collections, and explicit IndexedDB persistence.
 
+## Sheet zoom and selection statistics
+
+The demo's bottom-right slider magnifies only cells, headers and the cell editor,
+from 25% to 400%. The native range input supports arrows, Home and End; adjacent
+buttons change zoom by 10 percentage points, and the percentage button resets it
+to 100%. The preference stays local to the demo. Browser zoom continues to resize
+the complete interface independently. Menus, toolbar controls and file exports
+retain their normal sizes. Library integrations can use `{ zoom: 150 }`,
+`grid.setZoom(200)` and the read-only `grid.zoom` property. Zoom is a view setting;
+it is absent from workbook exports and undo history. It requires CSS `zoom`
+support; the demo disables these controls when the browser reports no support.
+
+The status bar shows count, sum, average, median, maximum and minimum. Its
+selection-statistics button opens all values, including numeric count, when a
+narrow viewport hides some of the inline summary. Keyboard focus enters the
+summary region; Escape closes it and returns focus to the button. Long summaries
+scroll instead of overflowing the viewport.
+
+```js
+const stats = grid.getSelectionStatistics(
+  { r1: 0, c1: 0, r2: 3, c2: 0 },
+  { visibleOnly: true, maxMedianValues: 100000 },
+);
+// [1, 2, 3, 4]: count 4, sum 10, average/median 2.5, min 1, max 4.
+```
+
+The default range is the current selection; reversed endpoints are normalized.
+Count includes nonempty visible cells, while numeric count and calculations use
+finite numbers, BigInt and exact decimals. Text, booleans, dates, JSON and errors
+do not become numbers. Hidden rows/columns and filtered rows are excluded unless
+`visibleOnly: false` is passed. Dynamic-array spill results are included exactly
+once. An empty numeric selection has sum 0 and null average/median/min/max, shown
+as a dash. The footer formats up to six fractional digits without changing the
+underlying values.
+
+Sparse rectangles do not allocate their empty coordinates. Sum/count/extrema
+stream over stored values; median retains and sorts at most 100,000 numbers by
+default. Above that budget `medianLimited` is true and median is null; the demo
+states the limit explicitly while the other values remain available. Hosts may
+raise `maxMedianValues` after considering memory and main-thread work.
+
 ## External controls and sheet references
 
 Use `=Prices!B2` or `=SUM('Prices EU'!B2:B10)` with the worksheets plugin. Host controls can update `@vat` through `grid.setExternalVariable('vat', 0.19)`; `grid.recalculate()` triggers a full refresh. See [external variables](plugins.md#external-variables-and-recalculation) for batching, scope, and persistence behavior.

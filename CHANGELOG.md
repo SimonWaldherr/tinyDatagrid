@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Add sheet-only zoom with a keyboard-operable status-bar slider, plus/minus and
+  reset controls; retain workbook dimensions and align hit testing/editors across browsers.
+- Extend selection statistics with exact sums, numeric counts, averages, median,
+  minimum and maximum, including visible spill cells and a bounded median calculation.
+- Improve theme/control contrast, short-viewport layout, managed grid tab stops
+  and Tab/Shift+Tab wrapping inside native modal dialogs.
+- Preserve edits and editor drafts made during asynchronous autosave startup;
+  remove discarded drafts rather than restoring them in later sessions.
+- Add optional `escapeFormulas` CSV/TSV protection shared by synchronous and
+  asynchronous exports, enabled with an explicit opt-out in the demo.
+- Improve search error semantics, focus return, localized counts, immediate
+  replacement, worksheet/history refresh and cleanup of global shortcuts.
+
 - Add cooperative workbook snapshots and row-wise file export with cancellation,
   progress and independent cell/byte budgets; use them in the demo's Save/export actions.
 - Coalesce autosaves, reuse captured workbooks for IndexedDB and bounded recovery,

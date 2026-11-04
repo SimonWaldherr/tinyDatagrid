@@ -41,7 +41,26 @@ export async function installAutosave(
     durableRevision = -1,
     activeRevision = -1,
     restored = false,
-    backupRevision = -1;
+    backupRevision = -1,
+    savedDraft = null;
+  // Storage reads can outlive user input. A late restore must never replace
+  // changes made while installation is awaiting IndexedDB.
+  let changedDuringLoad = false;
+  const markChanged = () => {
+    changedDuringLoad = true;
+  };
+  const preparingOffs = [
+    "mutation",
+    "history",
+    "worksheet",
+    "externalvariables",
+  ].map((event) => grid.on(event, markChanged));
+  grid.editor.addEventListener("input", markChanged);
+  if (formula !== grid.editor) formula.addEventListener("input", markChanged);
+  const markEditing = () => {
+    if (grid._editing) markChanged();
+  };
+  grid.el.addEventListener("keydown", markEditing);
   const offPreparing = grid.on("destroy", () => {
     disposed = true;
   });
@@ -85,10 +104,16 @@ export async function installAutosave(
   const recoveryFirst =
     recovery &&
     (!persisted || !recovery.savedAt || recovery.savedAt >= persisted.savedAt);
+  preparingOffs.forEach((off) => off());
+  grid.editor.removeEventListener("input", markChanged);
+  if (formula !== grid.editor)
+    formula.removeEventListener("input", markChanged);
+  grid.el.removeEventListener("keydown", markEditing);
   for (const item of recoveryFirst
     ? [recovery, persisted]
     : [persisted, recovery]) {
-    if (!item || disposed) continue;
+    if (disposed || changedDuringLoad) break;
+    if (!item) continue;
     try {
       if (grid.importWorkbook(item.workbook, { replace: true }) === false)
         continue;
@@ -114,6 +139,7 @@ export async function installAutosave(
       save,
       dispose() {},
       restoreDraft() {},
+      clearDraft() {},
     };
   function clearTimers() {
     clearTimeout(timer);
@@ -193,7 +219,7 @@ export async function installAutosave(
   function changed() {
     if (disposed) return;
     revision++;
-    remove(draftKey);
+    clearDraft();
     status("savingLocal");
     clearTimeout(timer);
     timer = setTimeout(() => void save(), delay);
@@ -205,6 +231,7 @@ export async function installAutosave(
   function draft() {
     if (disposed) return;
     const editing = grid._editing;
+    if (editing || document.activeElement === formula) savedDraft = null;
     if (editing)
       put(
         draftKey,
@@ -229,6 +256,13 @@ export async function installAutosave(
   // The first keystroke is inserted by edit(), before the editor's input event.
   const keydown = () => queueMicrotask(draft);
   grid.el.addEventListener("keydown", keydown);
+  // Commit/cancel can move focus without changing the sheet (e.g. Escape).
+  // Remove discarded text instead of restoring it in the next session.
+  const endEdit = () =>
+    queueMicrotask(() => {
+      if (!disposed && !grid._editing) clearDraft();
+    });
+  grid.editor.addEventListener("blur", endEdit);
   offs.push(
     grid.on("select", () => {
       if (!grid._editing && document.activeElement !== formula)
@@ -260,13 +294,23 @@ export async function installAutosave(
     grid.editor.removeEventListener("input", draft);
     if (formula !== grid.editor) formula.removeEventListener("input", draft);
     grid.el.removeEventListener("keydown", keydown);
+    grid.editor.removeEventListener("blur", endEdit);
     window.removeEventListener("pagehide", flush);
     window.removeEventListener("beforeunload", beforeUnload);
     document.removeEventListener("visibilitychange", visibility);
     if (grid.feature("indexedDB") === storage) grid.removePlugin("indexedDB");
   }
   offs.push(grid.on("destroy", dispose));
-  const savedDraft = read(draftKey);
+  savedDraft = changedDuringLoad ? null : read(draftKey);
+  if (changedDuringLoad) {
+    changed();
+    draft();
+  }
+  function clearDraft() {
+    if (disposed) return;
+    savedDraft = null;
+    remove(draftKey);
+  }
   return {
     restored,
     get pending() {
@@ -274,10 +318,12 @@ export async function installAutosave(
     },
     save,
     dispose,
+    clearDraft,
     restoreDraft() {
       if (disposed || !savedDraft) return;
       try {
-        const item = JSON.parse(savedDraft);
+        const draftText = savedDraft,
+          item = JSON.parse(draftText);
         if (
           item.sheetId &&
           grid.feature("worksheets") &&
@@ -304,7 +350,7 @@ export async function installAutosave(
           return;
         grid.select(item.row, item.col);
         grid.edit(item.row, item.col, item.value);
-        put(draftKey, savedDraft);
+        put(draftKey, draftText);
       } catch {
         status("saveFailed");
       }

@@ -19,6 +19,8 @@ export interface Autosave extends DisposableTool {
   readonly pending: boolean;
   save(withBackup?: boolean): Promise<void>;
   restoreDraft(): void;
+  /** Remove unfinished text from memory/localStorage; call when cancelling an external formula bar. */
+  clearDraft(): void;
 }
 /** Opt-in IndexedDB saving, local recovery and draft restoration. */
 export function installAutosave(

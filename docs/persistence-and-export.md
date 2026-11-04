@@ -33,6 +33,24 @@ coordinate, including blanks. CSV/TSV export raw inputs by default; the other
 rectangular formats export computed values. Override this with `computed`.
 JSON uses the first row as field names (`headerRow` can choose another row).
 
+### Formula-like text in CSV/TSV
+
+Use `escapeFormulas: true` in `exportData`, `grid.exportCSV`, or
+`grid.exportTSV` when opening untrusted data in another spreadsheet application.
+`stringifyCSV(rows, delimiter, { escapeFormulas: true })` offers the same policy.
+It prefixes formula-like strings with an apostrophe and quotes them, including
+leading whitespace/control characters and full-width formula markers. Numeric
+values remain numeric; source cells are never changed. The demo enables this
+option for CSV/TSV and lets users disable it in the export dialog.
+
+The library default remains `false` for compatibility with existing data
+pipelines and formula exports. Protection changes exported text, so use workbook
+JSON to retain literal text and formulas without this transformation. CSV quoting
+alone does not prevent formula interpretation. Spreadsheet applications differ,
+and saving/reopening an escaped CSV can undo protection: this is a mitigation,
+not a guarantee across all spreadsheet consumers. See
+[OWASP's CSV injection guidance](https://owasp.org/www-community/attacks/CSV_Injection).
+
 Rectangular exports read one row at a time without allocating a full matrix.
 Workbook capture and JSON encoding yield between batches (`batchSize: 500` by
 default). Progress phases are `snapshot`, `rows` and `encode`; `total` is absent
@@ -82,6 +100,11 @@ cause a subsequent pass for the latest revision; an older write never reports th
 new revision as saved. Continuous editing cannot postpone the first attempt past
 `maxWait`. Each document needs its own key.
 
+If the workbook or editor changes while the initial storage read is pending,
+autosave skips restoration and schedules the current state for saving. It also
+skips the previous session's draft, so a late response cannot replace new input
+or clear its undo history. `restored` is `false` in this case.
+
 The localStorage recovery envelope is encoded asynchronously and capped at
 `recoveryMaxBytes` (default 1 MiB; 0 disables it). Oversized recovery is skipped;
 IndexedDB is still attempted. Status is `savedLocal` after a committed IndexedDB
@@ -96,6 +119,19 @@ can terminate unfinished asynchronous work; changes since the last completed sav
 may be lost. An outstanding unsaved revision requests the browser's normal leave
 confirmation where supported. The demo header distinguishes recovery from a
 durable save. Export remains the independent backup option.
+
+Finishing or cancelling a cell edit removes the corresponding local draft;
+rejected edits that remain open retain their draft. Call `saving.clearDraft()`
+when cancelling a host-provided formula bar; the demo does this for its Cancel
+button and Escape. Moving focus away from an external formula bar alone does
+not discard unfinished text.
+Workbook, recovery and draft data remain readable by scripts on the same origin.
+`recoveryMaxBytes: 0` disables the recovery copy, not draft saving or IndexedDB.
+The storage plugin's `clear()` removes its document from IndexedDB only; complete
+erasure also requires removing its recovery/draft keys with autosave stopped, or
+clearing the origin's site data in the browser. There is no automatic retention
+period. Hosts handling sensitive data must choose their own persistence and
+retention policy; these technical choices do not establish legal compliance.
 
 The lower-level IndexedDB plugin serializes `save`, `load`, `restore` and `clear`.
 `save(snapshot?)` can reuse a detached workbook; do not mutate a supplied snapshot

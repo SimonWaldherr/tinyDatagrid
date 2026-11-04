@@ -97,6 +97,13 @@ export { WorkbookChangedError } from "./async-task.js";
 let gridSequence = 0;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+function validateZoom(percent) {
+  if (!Number.isFinite(percent) || percent < 25 || percent > 400)
+    throw new RangeError("Zoom must be between 25 and 400 percent");
+  if (percent !== 100 && globalThis.CSS?.supports?.("zoom", "2") === false)
+    throw new Error("This browser does not support sheet zoom");
+  return percent;
+}
 function toPortableValue(value) {
   if (value instanceof FormulaError) return value.toJSON();
   if (
@@ -325,13 +332,24 @@ function importMarkupTable(markup, selector = "table") {
   );
 }
 
-export function stringifyCSV(rows, delimiter = ",") {
+export function stringifyCSV(
+  rows,
+  delimiter = ",",
+  { escapeFormulas = false } = {},
+) {
   return rows
     .map((row) =>
       row
         .map((value) => {
-          const text = rawText(value);
-          return /["\r\n]/.test(text) || text.includes(delimiter)
+          let text = rawText(value);
+          // CSV quoting alone does not stop spreadsheet applications interpreting
+          // untrusted text as a formula. Keep numeric values numeric.
+          const escaped =
+            escapeFormulas &&
+            typeof value === "string" &&
+            /^\s*[=+\-@＝＋－＠\t\r\n]/u.test(text);
+          if (escaped) text = "'" + text;
+          return escaped || /["\r\n]/.test(text) || text.includes(delimiter)
             ? `"${text.replaceAll('"', '""')}"`
             : text;
         })
@@ -2111,6 +2129,7 @@ export class TinyDatagrid {
     };
     if (options.maxRangeCells !== undefined)
       positiveInteger(options.maxRangeCells, "maxRangeCells");
+    this._zoom = validateZoom(options.zoom ?? 100);
     const overscan = Math.trunc(
       Number(this.options.virtualizationOverscan ?? 6),
     );
@@ -2484,6 +2503,129 @@ export class TinyDatagrid {
   }
   t(key) {
     return translate(this.locale, key);
+  }
+  get zoom() {
+    return this._zoom ?? 100;
+  }
+  /** View only: workbook dimensions, exports and history retain their original sizes. */
+  setZoom(percent = 100) {
+    validateZoom(percent);
+    if (percent === this.zoom) return this;
+    this._zoom = percent;
+    this.viewport?.style.setProperty("--tg-zoom", String(percent / 100));
+    if (this.contextMenu) this._closeColumnMenu();
+    if (this.filterMenu) this._closeFilterMenu();
+    if (this.autofillMenu) this._closeAutofillMenu();
+    this.render();
+    if (this.scroll) this.scrollToCell(this.anchor.row, this.anchor.col);
+    this.emit("zoom", { percent });
+    return this;
+  }
+  /** Sparse, visible selection statistics. Text, booleans and dates are not numbers. */
+  getSelectionStatistics(
+    range = this.selection,
+    { visibleOnly = true, maxMedianValues = 100000 } = {},
+  ) {
+    positiveInteger(maxMedianValues, "maxMedianValues");
+    let { r1, c1, r2, c2 } = range;
+    if (![r1, c1, r2, c2].every((n) => Number.isSafeInteger(n) && n >= 0))
+      throw new TypeError("A valid selection range is required");
+    [r1, r2] = [Math.min(r1, r2), Math.max(r1, r2)];
+    [c1, c2] = [Math.min(c1, c2), Math.max(c1, c2)];
+    checkDimensions(r2 + 1, c2 + 1);
+    let count = 0,
+      numericCount = 0,
+      sum = 0,
+      min = null,
+      max = null,
+      failure = null;
+    const values = [],
+      seen = new Set();
+    const consume = (row, col) => {
+      if (
+        row < r1 ||
+        row > r2 ||
+        col < c1 ||
+        col > c2 ||
+        (visibleOnly &&
+          (this.hiddenRows.has(row) ||
+            this.filteredRows.has(row) ||
+            this.hiddenColumns.has(col)))
+      )
+        return;
+      const key = this.key(row, col);
+      if (seen.has(key)) return;
+      seen.add(key);
+      const value = this.getCalculationValue(row, col);
+      if (value === "" || value == null) return;
+      count++;
+      if (
+        !(value instanceof DecimalValue) &&
+        typeof value !== "bigint" &&
+        !(typeof value === "number" && Number.isFinite(value))
+      )
+        return;
+      numericCount++;
+      if (numericCount <= maxMedianValues) values.push(value);
+      else if (values.length) values.length = 0;
+      try {
+        sum = arithmetic("+", sum, value);
+        if (min === null || compareDecimals(value, min) < 0) min = value;
+        if (max === null || compareDecimals(value, max) > 0) max = value;
+      } catch {
+        failure = new FormulaError("#NUM!");
+      }
+    };
+    // Settle first: a spill can start outside the selected rectangle.
+    const spills = this.getSpillRanges();
+    const area = (r2 - r1 + 1) * (c2 - c1 + 1);
+    if (area <= Math.min(this.cells.size, 10000)) {
+      for (let row = r1; row <= r2; row++)
+        for (let col = c1; col <= c2; col++) consume(row, col);
+    } else
+      for (const key of this.cells.keys())
+        consume(...key.split(",").map(Number));
+    for (const spill of spills)
+      for (
+        let row = Math.max(r1, spill.row);
+        row <= Math.min(r2, spill.row + spill.rows - 1);
+        row++
+      )
+        for (
+          let col = Math.max(c1, spill.col);
+          col <= Math.min(c2, spill.col + spill.cols - 1);
+          col++
+        )
+          consume(row, col);
+    const medianLimited = numericCount > maxMedianValues;
+    let median = null,
+      average = null;
+    try {
+      if (numericCount && !failure) average = divideNumbers(sum, numericCount);
+      if (numericCount && !medianLimited && !failure) {
+        values.sort(compareDecimals);
+        const middle = Math.floor(values.length / 2);
+        median =
+          values.length % 2
+            ? values[middle]
+            : divideNumbers(
+                arithmetic("+", values[middle - 1], values[middle]),
+                2,
+              );
+      }
+    } catch {
+      failure = new FormulaError("#NUM!");
+    }
+    return {
+      count,
+      numericCount,
+      sum: failure ?? sum,
+      average: failure ?? average,
+      median: failure ?? median,
+      min: failure ?? min,
+      max: failure ?? max,
+      medianLimited,
+    };
   }
   setLocale(locale = "en") {
     this.locale = locale;
@@ -4231,14 +4373,20 @@ export class TinyDatagrid {
     }
     return { r1: 0, c1: 0, r2, c2 };
   }
-  exportCSV({ range, computed = false, delimiter = "," } = {}) {
+  exportCSV({
+    range,
+    computed = false,
+    delimiter = ",",
+    escapeFormulas = false,
+  } = {}) {
     return stringifyCSV(
       this.toArray(range || this.getUsedRange(), computed),
       delimiter,
+      { escapeFormulas },
     );
   }
-  exportTSV({ range, computed = false } = {}) {
-    return this.exportCSV({ range, computed, delimiter: "\t" });
+  exportTSV({ range, computed = false, escapeFormulas = false } = {}) {
+    return this.exportCSV({ range, computed, delimiter: "\t", escapeFormulas });
   }
   exportHTML({ range, computed = true } = {}) {
     const escape = (value) =>
@@ -5594,6 +5742,9 @@ export class TinyDatagrid {
     if (this.readOnly) this.el.classList.add("tg-readonly");
     this.el.innerHTML = `<div class="tg-corner"></div><div class="tg-colheaders" role="row" aria-rowindex="1"></div><div class="tg-rowheaders" aria-hidden="true"></div><div class="tg-scroll"><div class="tg-canvas"></div></div><div class="tg-selection"><div class="tg-fill-handle"></div></div><div class="tg-context-menu" role="menu" hidden></div><div class="tg-filter-menu" role="dialog" aria-label="Filter" hidden></div><div class="tg-autofill-menu" role="dialog" aria-label="Ausfüllmethode" hidden></div><textarea class="tg-editor" rows="1" spellcheck="false"></textarea>`;
     this.scroll = this.el.querySelector(".tg-scroll");
+    // The grid owns keyboard navigation via aria-activedescendant. Prevent
+    // browsers from adding an inert second tab stop for the scroll viewport.
+    this.scroll.tabIndex = -1;
     this.canvas = this.el.querySelector(".tg-canvas");
     this.colHeaders = this.el.querySelector(".tg-colheaders");
     this.rowHeaders = this.el.querySelector(".tg-rowheaders");
@@ -5608,6 +5759,29 @@ export class TinyDatagrid {
     this.autofillMenu = this.el.querySelector(".tg-autofill-menu");
     this.editor = this.el.querySelector(".tg-editor");
     this.editor.readOnly = this.readOnly;
+    // Only the sheet is magnified. Menus remain outside this viewport so their
+    // controls keep normal sizes and use ordinary viewport coordinates.
+    this.viewport = document.createElement("div");
+    this.viewport.className = "tg-viewport";
+    this.viewport.style.setProperty("--tg-zoom", String(this.zoom / 100));
+    this.viewport.style.setProperty(
+      "--tg-header-width",
+      this.options.headerWidth + "px",
+    );
+    this.viewport.style.setProperty(
+      "--tg-header-height",
+      this.options.headerHeight + "px",
+    );
+    for (const node of [
+      this.el.querySelector(".tg-corner"),
+      this.colHeaders,
+      this.rowHeaders,
+      this.scroll,
+      this.selectionEl,
+      this.editor,
+    ])
+      this.viewport.append(node);
+    this.el.prepend(this.viewport);
   }
   _setColumnSelection(col) {
     this.anchor = { row: 0, col };
@@ -6523,8 +6697,8 @@ export class TinyDatagrid {
   getCellAtClient(x, y) {
     const rect = this.scroll.getBoundingClientRect();
     const frozen = this._frozenCounts(),
-      localX = x - rect.left,
-      localY = y - rect.top;
+      localX = (x - rect.left) / ((this.zoom ?? 100) / 100),
+      localY = (y - rect.top) / ((this.zoom ?? 100) / 100);
     const px =
         localX +
         (localX < (this.colOffsets[frozen.columns] || 0) ? 0 : this._scrollX()),
@@ -6607,8 +6781,10 @@ export class TinyDatagrid {
     const xs = segments(c1, c2, "columns", width),
       ys = segments(r1, r2, "rows", height);
     Object.assign(this.selectionEl.style, {
-      left: this.scroll.offsetLeft + "px",
-      top: this.scroll.offsetTop + "px",
+      // Safari and Chromium report CSS zoom differently in offsetLeft/Top.
+      // Header dimensions are already in the viewport's logical coordinate space.
+      left: this.options.headerWidth + "px",
+      top: this.options.headerHeight + "px",
       width: width + "px",
       height: height + "px",
       display: xs.length && ys.length ? "block" : "none",
@@ -6662,8 +6838,8 @@ export class TinyDatagrid {
         ex < width &&
         ey < height;
       Object.assign(this.editor.style, {
-        left: this.scroll.offsetLeft + ex + "px",
-        top: this.scroll.offsetTop + ey + "px",
+        left: this.options.headerWidth + ex + "px",
+        top: this.options.headerHeight + ey + "px",
         visibility: visible ? "visible" : "hidden",
       });
     }
@@ -7278,7 +7454,9 @@ export class TinyDatagrid {
       const size = axis === "x" ? this.colWidths[idx] : this.rowHeights[idx];
       const move = (ev) => {
         if (this.readOnly) return;
-        const d = (axis === "x" ? ev.clientX : ev.clientY) - start;
+        const d =
+          ((axis === "x" ? ev.clientX : ev.clientY) - start) /
+          (this.zoom / 100);
         axis === "x"
           ? this.setColumnWidth(idx, size + d)
           : this.setRowHeight(idx, size + d);

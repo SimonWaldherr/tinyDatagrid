@@ -1,4 +1,5 @@
 export * from "./sql-tools.js";
+export { keepDialogFocus } from "./dialog-focus.js";
 export * from "./analysis-tools.js";
 export * from "./simulation-tools.js";
 export * from "./object-browser.js";

@@ -91,6 +91,17 @@ system. `installSearch` keeps matches fresh while its bar is open and implements
 Ctrl/Cmd+F and Ctrl+H. The chart helper reads the current visible selection,
 creates an accessible SVG and table view, and can save SVG or PNG.
 
+Search also exposes `dispose()` and releases its DOM/grid listeners and global
+shortcuts automatically when the grid is destroyed. Closing the bar returns
+focus to its invoking control. Invalid regexes expose `aria-invalid`, describe the
+error through `#searchResult`, and disable replacement/navigation until corrected.
+Matches refresh after worksheet changes and undo/redo as well as ordinary edits.
+Pass `language: () => currentLanguage` for localized number formatting and plural
+selection (otherwise `grid.locale` is used). The provided translators include the
+`searchMatchesOne/Other`, `searchReplacementsOne/Other` and `searchCellsOne/Other`
+templates with `{count}`; custom translators returning unknown keys still use
+the existing `matches`, `replacements` and `cells` labels as a fallback.
+
 ## Host markup
 
 Each installer binds controls by ID. The demo markup is the complete reference
@@ -201,6 +212,11 @@ The UI helpers expose `dispose()` and clean themselves up when the grid is
 destroyed. Use a translation callback such as `t: key => translator(language)(key)`
 for a changeable language and call `refreshLabels()` after changing it.
 The object browser instead refreshes through `render()`.
+
+Native dialogs created by these helpers wrap Tab/Shift+Tab at their boundaries.
+For a host's own modal dialogs, import `keepDialogFocus` from
+`tiny-datagrid/demo-tools` and attach it as a `keydown` handler on the dialog or
+document. It ignores nonmodal dialogs and already-handled key events.
 
 ```js
 import { installAutosave, installSheetGrowth } from "tiny-datagrid/demo-tools";

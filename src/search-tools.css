@@ -62,7 +62,7 @@
   transform: rotate(90deg);
 }
 #replaceRow {
-  padding-left: 42px;
+  padding-inline-start: 42px;
 }
 #replaceText {
   width: 320px;
@@ -73,7 +73,7 @@
     flex-wrap: wrap;
   }
   #replaceRow {
-    padding-left: 0;
+    padding-inline-start: 0;
   }
   #replaceText {
     flex: 1;
@@ -81,5 +81,10 @@
   }
   .search-bar .search-row #search {
     flex: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #toggleReplace svg {
+    transition: none;
   }
 }

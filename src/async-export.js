@@ -211,6 +211,7 @@ export async function exportData(grid, options = {}) {
               stringifyCSV(
                 [values],
                 format === "tsv" ? "\t" : (options.delimiter ?? ","),
+                { escapeFormulas: options.escapeFormulas },
               ),
           );
           break;

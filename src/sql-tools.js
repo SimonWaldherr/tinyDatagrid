@@ -1,4 +1,5 @@
 import { toA1 } from "./tinygrid.js";
+import { keepDialogFocus } from "./dialog-focus.js";
 import { applyToolLabels } from "./tool-labels.js";
 
 export function installSQLTools({ grid, $, t, selection, showSource, notify }) {
@@ -10,6 +11,7 @@ export function installSQLTools({ grid, $, t, selection, showSource, notify }) {
   button.dataset.title = "localSQLTitle";
   $("#pivotBtn").after(button);
   const dialog = document.createElement("dialog");
+  dialog.addEventListener("keydown", keepDialogFocus);
   dialog.className = "wide local-sql-dialog";
   dialog.setAttribute("aria-labelledby", "localSQLTitle");
   const heading = document.createElement("div");

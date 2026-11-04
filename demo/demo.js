@@ -1,4 +1,5 @@
 import { openFormGenerator } from "../src/form-ui.js";
+import { keepDialogFocus } from "../src/demo-tools.js";
 import { installObjectBrowser } from "./object-browser.js";
 import { analysisContext } from "../src/analysis.js";
 import { businessIntelligence } from "../src/bi.js";
@@ -43,6 +44,8 @@ import {
 
 const $ = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
+document.addEventListener("keydown", keepDialogFocus);
+const canZoom = globalThis.CSS?.supports?.("zoom", "2") !== false;
 function preference(key, fallback) {
   try {
     return localStorage.getItem(`tinygrid.${key}`) || fallback;
@@ -111,6 +114,12 @@ $("#language").replaceChildren(
 );
 $("#language").value = language;
 const grid = new TinyDatagrid("#grid", {
+  zoom: (() => {
+    const value = Number(preference("zoom", "100"));
+    return canZoom && Number.isFinite(value) && value >= 25 && value <= 400
+      ? value
+      : 100;
+  })(),
   rows: 60,
   columns: 12,
   columnWidth: 120,
@@ -202,6 +211,53 @@ const fmt = (value) =>
   typeof value === "number"
     ? value.toLocaleString(language, { maximumFractionDigits: 2 })
     : String(value ?? "");
+function syncZoom() {
+  const percent = new Intl.NumberFormat(language, {
+    style: "percent",
+    maximumFractionDigits: 0,
+  }).format(grid.zoom / 100);
+  $("#gridZoom").value = String(grid.zoom);
+  $("#gridZoom").setAttribute("aria-valuetext", percent);
+  $("#zoomValue").textContent = percent;
+  $("#zoomReset").setAttribute("aria-label", `${t("resetZoom")} · ${percent}`);
+  $("#gridZoom").disabled = !canZoom;
+  $("#zoomReset").disabled = !canZoom;
+  $("#zoomOut").disabled = !canZoom || grid.zoom <= 25;
+  $("#zoomIn").disabled = !canZoom || grid.zoom >= 400;
+}
+$("#gridZoom").oninput = (event) => grid.setZoom(Number(event.target.value));
+$("#zoomOut").onclick = () => grid.setZoom(Math.max(25, grid.zoom - 10));
+$("#zoomIn").onclick = () => grid.setZoom(Math.min(400, grid.zoom + 10));
+$("#zoomReset").onclick = () => grid.setZoom(100);
+grid.on("zoom", () => {
+  savePreference("zoom", String(grid.zoom));
+  syncZoom();
+});
+const statisticsPopover = $("#statisticsPopover");
+statisticsPopover.addEventListener("beforetoggle", (event) => {
+  $("#statisticsToggle").setAttribute(
+    "aria-expanded",
+    String(event.newState === "open"),
+  );
+  if (event.newState === "open") {
+    const rect = $("#statisticsToggle").getBoundingClientRect();
+    statisticsPopover.style.left =
+      Math.max(8, Math.min(rect.right - 360, innerWidth - 368)) + "px";
+    statisticsPopover.style.bottom =
+      Math.max(8, innerHeight - rect.top + 6) + "px";
+    statisticsPopover.style.maxHeight =
+      Math.max(80, Math.min(420, rect.top - 16)) + "px";
+  }
+});
+statisticsPopover.addEventListener("toggle", (event) => {
+  if (event.newState === "open")
+    statisticsPopover.focus({ preventScroll: true });
+  else if (
+    document.activeElement === statisticsPopover ||
+    document.activeElement === document.body
+  )
+    $("#statisticsToggle").focus({ preventScroll: true });
+});
 function selection() {
   const s = grid.selection;
   return {
@@ -247,46 +303,48 @@ function syncSelection() {
     (s.r1 !== s.r2 || s.c1 !== s.c2 ? ":" + toA1(s.r2, s.c2) : "");
   if (document.activeElement !== $("#formula"))
     $("#formula").value = rawText(grid.getRawValue(a.row, a.col));
-  let count = 0,
-    sum = 0,
-    numbers = 0;
-  const area = (s.r2 - s.r1 + 1) * (s.c2 - s.c1 + 1);
-  function* selectedKeys() {
-    if (area <= Math.min(grid.cells.size, 10000)) {
-      for (let r = s.r1; r <= s.r2; r++)
-        for (let c = s.c1; c <= s.c2; c++) yield `${r},${c}`;
-    } else yield* grid.cells.keys();
+  const stats = grid.getSelectionStatistics(s);
+  const keys = [
+    "count",
+    "sum",
+    "average",
+    "median",
+    "max",
+    "min",
+    "numericCount",
+  ];
+  const formatStatistic = (value) =>
+    value == null
+      ? "—"
+      : typeof value === "number" || typeof value === "bigint"
+        ? new Intl.NumberFormat(language, { maximumFractionDigits: 6 }).format(
+            value,
+          )
+        : grid.formatValue(value, { type: "number", maximumFractionDigits: 6 });
+  $("#statistics").replaceChildren();
+  $("#statisticsDetails").replaceChildren();
+  for (const key of keys) {
+    const value =
+      key === "median" && stats.medianLimited
+        ? t("medianLimit").replace("{limit}", fmt(100000))
+        : formatStatistic(stats[key]);
+    const row = document.createElement("div"),
+      label = document.createElement("dt"),
+      result = document.createElement("dd");
+    label.textContent = t(key);
+    result.textContent = value;
+    row.append(label, result);
+    $("#statisticsDetails").append(row);
+    if (key === "numericCount") continue;
+    const span = document.createElement("span"),
+      strong = document.createElement("strong");
+    span.dataset.statistic = key;
+    span.textContent = t(key);
+    strong.textContent = value;
+    span.title = `${t(key)}: ${value}`;
+    span.append(strong);
+    $("#statistics").append(span);
   }
-  for (const key of selectedKeys()) {
-    const [r, c] = key.split(",").map(Number);
-    if (r < s.r1 || r > s.r2 || c < s.c1 || c > s.c2) continue;
-    if (
-      grid.hiddenRows.has(r) ||
-      grid.filteredRows.has(r) ||
-      grid.hiddenColumns.has(c)
-    )
-      continue;
-    const value = grid.getComputedValue(r, c);
-    if (value !== "" && value != null) count++;
-    if (typeof value === "number" && Number.isFinite(value)) {
-      sum += value;
-      numbers++;
-    }
-  }
-  $("#statistics").replaceChildren(
-    ...[
-      ["count", count],
-      ["sum", sum],
-      ["average", numbers ? sum / numbers : 0],
-    ].map(([key, value]) => {
-      const span = document.createElement("span"),
-        strong = document.createElement("strong");
-      span.textContent = t(key);
-      strong.textContent = fmt(value);
-      span.append(strong);
-      return span;
-    }),
-  );
   if (!$("#inspector").open)
     $("#pivotTarget").value = toA1(grid.anchor.row, grid.anchor.col);
   $("#inspectorSelection").textContent = $("#nameBox").value;
@@ -566,6 +624,7 @@ function applyLanguage() {
   formulaTools?.refreshFunctionHelp();
   formulaTools?.refreshReferences();
   syncFreezeControls();
+  syncZoom();
 }
 $("#language").onchange = () => {
   language = $("#language").value;
@@ -644,6 +703,7 @@ $("#formulaBar").onsubmit = (e) => {
   applyFormula();
 };
 $("#formulaCancel").onclick = () => {
+  autosave.clearDraft();
   grid.el.focus({ preventScroll: true });
   syncSelection();
 };
@@ -665,6 +725,7 @@ $("#formula").onkeydown = (e) => {
   }
   if (e.key === "Escape") {
     e.preventDefault();
+    autosave.clearDraft();
     grid.el.focus({ preventScroll: true });
     syncSelection();
   }
@@ -1006,6 +1067,7 @@ const searchTools = installSearch({
   t: (key) => t(key),
   notify,
   selection,
+  language: () => language,
 });
 const refreshSearch = searchTools.refresh,
   openSearch = searchTools.open;
@@ -1584,6 +1646,7 @@ async function saveWorkbook() {
   if (exportController || grid.commitEdit() === false) return;
   $("#exportFormat").value = "workbook";
   $("#exportRange").disabled = true;
+  $("#exportTextSafety").hidden = true;
   showDialog("#exportDialog");
   await runExport();
 }
@@ -1613,6 +1676,9 @@ $("#loadDemoBtn").onclick = () => {
 };
 $("#exportFormat").onchange = () => {
   $("#exportRange").disabled = $("#exportFormat").value === "workbook";
+  $("#exportTextSafety").hidden = !["csv", "tsv"].includes(
+    $("#exportFormat").value,
+  );
 };
 $("#exportRange").disabled = true;
 let exportController = null;
@@ -1653,6 +1719,7 @@ async function runExport() {
       const blob = await exportData(grid, {
         format,
         range,
+        escapeFormulas: $("#escapeFormulas").checked,
         signal: exportController.signal,
         onProgress({ phase, completed, total }) {
           const progress = $("#exportProgress");

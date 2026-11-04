@@ -7,6 +7,8 @@ export interface DataExportOptions extends AsyncOptions {
   range?: CellRange;
   computed?: boolean;
   delimiter?: string;
+  /** CSV/TSV only: prefix formula-like strings with an apostrophe. Default false. */
+  escapeFormulas?: boolean;
   headerRow?: number;
   /** Default 5,000,000. Independent of maxRangeCells. */
   maxCells?: number;

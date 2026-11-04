@@ -1,10 +1,12 @@
 import { lifeStep, mandelbrot, computeMandelbrot } from "./simulations.js";
+import { keepDialogFocus } from "./dialog-focus.js";
 import { drawHeatmap, heatmapRule } from "./heatmap.js";
 import { applyToolLabels } from "./tool-labels.js";
 
 export function installSimulations({ grid, $, t, notify }) {
   grid.registerFunction("MANDELBROT", mandelbrot);
   const dialog = document.createElement("dialog");
+  dialog.addEventListener("keydown", keepDialogFocus);
   dialog.className = "simulation-dialog";
   dialog.setAttribute("aria-labelledby", "simulationTitle");
   dialog.innerHTML = `<div class="dialog-heading"><h2 id="simulationTitle"></h2><button type="button" data-action="close" data-i18n="close"></button></div>

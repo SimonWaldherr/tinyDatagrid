@@ -9,6 +9,8 @@ Object.assign(globalThis, {
   document,
   CustomEvent: window.CustomEvent,
 });
+let activeElement = null;
+Object.defineProperty(document, "activeElement", { get: () => activeElement });
 const values = new Map();
 globalThis.localStorage = {
   getItem: (key) => values.get(key) ?? null,
@@ -231,6 +233,109 @@ try {
 }
 await busyAPI.save();
 busyAPI.dispose();
+
+// Edits made during asynchronous startup take precedence over stored data.
+const editedLoad = deferred();
+const edited = fixture({ load: () => editedLoad.promise });
+const editedPending = installAutosave(edited.grid, { key: "edited-load" });
+edited.grid.setCell(0, 0, "typed while loading");
+const historyBeforeRestore = edited.grid.historyState.undo;
+editedLoad.resolve({
+  workbook: portable("old saved value"),
+  savedAt: "2026-11-01T12:00:00.000Z",
+});
+const editedAPI = await editedPending;
+assert.equal(editedAPI.restored, false);
+assert.equal(edited.grid.getRawValue(0, 0), "typed while loading");
+assert.equal(edited.grid.historyState.undo, historyBeforeRestore);
+assert.equal(editedAPI.pending, true);
+await editedAPI.save();
+assert.equal(edited.snapshots[0].cells[0].value, "typed while loading");
+editedAPI.dispose();
+
+// Uncommitted editor text also takes precedence over a late workbook/draft restore.
+values.set(
+  "draft-load:draft",
+  JSON.stringify({ row: 0, col: 0, value: "old draft" }),
+);
+const draftLoad = deferred();
+const typing = fixture({ load: () => draftLoad.promise });
+const typingPending = installAutosave(typing.grid, { key: "draft-load" });
+typing.grid._editing = { row: 0, col: 0 };
+typing.grid.editor.value = "new draft";
+typing.grid.editor.dispatchEvent(new window.Event("input"));
+draftLoad.resolve({
+  workbook: portable("old saved value"),
+  savedAt: "2026-11-01T12:00:00.000Z",
+});
+const typingAPI = await typingPending;
+typingAPI.restoreDraft();
+assert.equal(typingAPI.restored, false);
+assert.equal(typing.grid.editor.value, "new draft");
+assert.equal(JSON.parse(values.get("draft-load:draft")).value, "new draft");
+typing.grid._editing = null;
+typing.grid.editor.dispatchEvent(new window.Event("blur"));
+await Promise.resolve();
+assert.equal(
+  values.has("draft-load:draft"),
+  false,
+  "discarded drafts are removed from local storage",
+);
+await typingAPI.save();
+typingAPI.dispose();
+
+// The first grid keystroke starts edit() without emitting an input event.
+const firstKeyLoad = deferred();
+const firstKey = fixture({ load: () => firstKeyLoad.promise });
+const firstKeyPending = installAutosave(firstKey.grid, { key: "first-key" });
+firstKey.grid._editing = { row: 0, col: 0 };
+firstKey.grid.editor.value = "x";
+firstKey.grid.el.dispatchEvent(new window.Event("keydown"));
+firstKeyLoad.resolve({
+  workbook: portable("old"),
+  savedAt: "2026-11-01T12:00:00.000Z",
+});
+const firstKeyAPI = await firstKeyPending;
+assert.equal(firstKeyAPI.restored, false);
+assert.equal(firstKey.grid.editor.value, "x");
+firstKeyAPI.dispose();
+
+// A host formula bar can lose focus without cancelling its draft. Explicit
+// cancellation erases both the stored draft and the captured restoration text.
+values.set(
+  "external-draft:draft",
+  JSON.stringify({ row: 0, col: 0, value: "old draft" }),
+);
+const external = fixture();
+const formula = document.createElement("textarea");
+const externalAPI = await installAutosave(external.grid, {
+  key: "external-draft",
+  formula,
+});
+activeElement = formula;
+formula.value = "still editing";
+formula.dispatchEvent(new window.Event("input"));
+let draftRestores = 0;
+external.grid.edit = () => draftRestores++;
+externalAPI.restoreDraft();
+assert.equal(draftRestores, 0, "new input supersedes the startup draft");
+assert.equal(
+  JSON.parse(values.get("external-draft:draft")).value,
+  "still editing",
+);
+activeElement = null;
+formula.dispatchEvent(new window.Event("blur"));
+await Promise.resolve();
+assert.equal(
+  JSON.parse(values.get("external-draft:draft")).value,
+  "still editing",
+);
+externalAPI.clearDraft();
+assert.equal(values.has("external-draft:draft"), false);
+externalAPI.restoreDraft();
+assert.equal(draftRestores, 0, "cancelled draft must not be restored");
+assert.equal(values.has("external-draft:draft"), false);
+externalAPI.dispose();
 
 // Destruction while reading storage cannot restore data or install new hooks.
 const loading = deferred();

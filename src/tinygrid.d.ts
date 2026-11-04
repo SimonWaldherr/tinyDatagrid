@@ -49,6 +49,22 @@ export type SQLPendingChanges = {
 };
 
 export type CellRange = { r1: number; c1: number; r2: number; c2: number };
+export type StatisticValue =
+  | number
+  | bigint
+  | import("./values.js").DecimalValue
+  | import("./values.js").FormulaError
+  | null;
+export interface SelectionStatistics {
+  count: number;
+  numericCount: number;
+  sum: StatisticValue;
+  average: StatisticValue;
+  median: StatisticValue;
+  min: StatisticValue;
+  max: StatisticValue;
+  medianLimited: boolean;
+}
 export type NumberFormat =
   string | ({ type?: string } & Record<string, unknown>);
 export interface GridCell {
@@ -108,6 +124,10 @@ export interface ExportOptions {
   range?: CellRange;
   computed?: boolean;
 }
+export interface DelimitedExportOptions extends ExportOptions {
+  /** Prefix formula-like strings with an apostrophe; changes exported text. Default false. */
+  escapeFormulas?: boolean;
+}
 export interface WorkbookImportResult {
   cells: number;
   rows: number;
@@ -153,6 +173,8 @@ export interface TinyDatagridOptions {
   historyLimit?: number;
   /** Maximum cells in a materialized range (default 1,000,000). Streaming aggregates are exempt. */
   maxRangeCells?: number;
+  /** View magnification in percent, 25–400. Default 100; not stored in workbooks. */
+  zoom?: number;
   plugins?: GridPlugin[];
   externalVariables?: Record<string, unknown>;
 }
@@ -257,6 +279,16 @@ export class TinyDatagrid {
   editor: HTMLTextAreaElement;
   scroll: HTMLElement;
   engine: FormulaEngine;
+  readonly zoom: number;
+  setZoom(percent?: number): this;
+  getSelectionStatistics(
+    range?: CellRange,
+    options?: {
+      visibleOnly?: boolean;
+      /** Median storage/sort budget; default 100,000 numeric values. Other statistics still stream. */
+      maxMedianValues?: number;
+    },
+  ): SelectionStatistics;
   conditionalFormats: Array<ConditionalRule | ColorScaleRule>;
   validationRules: ValidationRule[];
   hiddenRows: Set<number>;
@@ -310,8 +342,8 @@ export class TinyDatagrid {
     visibleOnly?: boolean;
   }): Record<string, unknown>[];
   pivot(config: Record<string, unknown>): ReturnType<typeof PivotEngine.pivot>;
-  exportCSV(options?: ExportOptions & { delimiter?: string }): string;
-  exportTSV(options?: ExportOptions): string;
+  exportCSV(options?: DelimitedExportOptions & { delimiter?: string }): string;
+  exportTSV(options?: DelimitedExportOptions): string;
   exportHTML(options?: ExportOptions): string;
   exportMarkdown(options?: ExportOptions): string;
   exportJSON(
@@ -597,7 +629,11 @@ export function nameToCol(name: string): number;
 export function parseCSV(text: string, delimiter?: string): string[][];
 export function detectDelimiter(text: string): string;
 export function parseMarkdownTable(text: string): string[][];
-export function stringifyCSV(rows: unknown[][], delimiter?: string): string;
+export function stringifyCSV(
+  rows: unknown[][],
+  delimiter?: string,
+  options?: { escapeFormulas?: boolean },
+): string;
 export class FormulaEngine {
   constructor(grid: TinyDatagrid);
   registerFunction(name: string, fn: SpreadsheetFunction): this;

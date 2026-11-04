@@ -1,4 +1,5 @@
 // Optional UI helpers shared with the demo; the core stays dependency-free.
+export { keepDialogFocus } from "./dialog-focus.js";
 export { installSQLTools } from "./sql-tools.js";
 export { installAnalysisTools } from "./analysis-tools.js";
 export { installSimulations } from "./simulation-tools.js";
